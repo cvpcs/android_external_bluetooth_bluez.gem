@@ -34,6 +34,10 @@ int a2dp_write(a2dpData data, const void* buffer, int count);
 int a2dp_stop(a2dpData data);
 void a2dp_cleanup(a2dpData data);
 
+// stubs for shadow
+int a2dp_reconfigure(a2dpData data);
+int a2dp_get_codec_supported(a2dpData data);
+
 #ifdef __cplusplus
 }
 #endif

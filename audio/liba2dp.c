@@ -1258,3 +1258,8 @@ void a2dp_cleanup(a2dpData d)
 	DBG("a2dp_cleanup\n");
 	set_command(data, A2DP_CMD_QUIT);
 }
+
+// stubs for shadow to link properly
+int a2dp_reconfigure(a2dpData data) { return -1; }
+int a2dp_get_codec_supported(a2dpData data) { return -1; }
+
