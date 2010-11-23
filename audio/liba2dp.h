@@ -35,8 +35,8 @@ int a2dp_stop(a2dpData data);
 void a2dp_cleanup(a2dpData data);
 
 // stubs for shadow
-int a2dp_reconfigure(a2dpData data);
-int a2dp_get_codec_supported(a2dpData data);
+void a2dp_reconfigure(int codec, uint32_t bitrate, int rate, int channels, a2dpData d);
+int a2dp_get_codec_supported(a2dpData d, int codec);
 
 #ifdef __cplusplus
 }

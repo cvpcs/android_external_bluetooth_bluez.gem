@@ -1260,6 +1260,6 @@ void a2dp_cleanup(a2dpData d)
 }
 
 // stubs for shadow to link properly
-int a2dp_reconfigure(a2dpData data) { return -1; }
-int a2dp_get_codec_supported(a2dpData data) { return -1; }
+void a2dp_reconfigure(int codec, uin32_t bitrate, int rate, int channels, a2dpData d) { return; }
+int a2dp_get_codec_supported(a2dpData data, int codec) { return 0; }
 
