@@ -1259,7 +1259,8 @@ void a2dp_cleanup(a2dpData d)
 	set_command(data, A2DP_CMD_QUIT);
 }
 
+#if defined(__DEVICE_shadow__) || defined(__DEVICE_droid2__)
 // stubs for shadow to link properly
 void a2dp_reconfigure(int codec, uint32_t bitrate, int rate, int channels, a2dpData d) { return; }
 int a2dp_get_codec_supported(a2dpData data, int codec) { return 0; }
-
+#endif
