@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -35,8 +35,8 @@
 
 #include <dbus/dbus.h>
 
-static char *passkey = NULL;
-
+static char *passkey_value = NULL;
+static int passkey_delay = 0;
 static int do_reject = 0;
 
 static volatile sig_atomic_t __io_canceled = 0;
@@ -61,8 +61,7 @@ static DBusHandlerResult agent_filter(DBusConnection *conn,
 					DBUS_TYPE_STRING, &old,
 					DBUS_TYPE_STRING, &new,
 					DBUS_TYPE_INVALID)) {
-		fprintf(stderr,
-			"Invalid arguments for NameOwnerChanged signal");
+		fprintf(stderr, "Invalid arguments for NameOwnerChanged signal");
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 	}
 
@@ -80,19 +79,17 @@ static DBusHandlerResult request_pincode_message(DBusConnection *conn,
 	DBusMessage *reply;
 	const char *path;
 
-	if (!passkey)
+	if (!passkey_value)
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
-	if (!dbus_message_get_args(msg, NULL,
-					DBUS_TYPE_OBJECT_PATH, &path,
-					DBUS_TYPE_INVALID)) {
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_OBJECT_PATH, &path,
+							DBUS_TYPE_INVALID)) {
 		fprintf(stderr, "Invalid arguments for RequestPinCode method");
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 	}
 
 	if (do_reject) {
-		reply = dbus_message_new_error(msg,
-					"org.bluez.Error.Rejected", "");
+		reply = dbus_message_new_error(msg, "org.bluez.Error.Rejected", "");
 		goto send;
 	}
 
@@ -104,8 +101,13 @@ static DBusHandlerResult request_pincode_message(DBusConnection *conn,
 
 	printf("Pincode request for device %s\n", path);
 
-	dbus_message_append_args(reply, DBUS_TYPE_STRING, &passkey,
-					DBUS_TYPE_INVALID);
+	if (passkey_delay) {
+		printf("Waiting for %d seconds\n", passkey_delay);
+		sleep(passkey_delay);
+	}
+
+	dbus_message_append_args(reply, DBUS_TYPE_STRING, &passkey_value,
+							DBUS_TYPE_INVALID);
 
 send:
 	dbus_connection_send(conn, reply, NULL);
@@ -122,22 +124,19 @@ static DBusHandlerResult request_passkey_message(DBusConnection *conn,
 {
 	DBusMessage *reply;
 	const char *path;
-	unsigned int int_passkey;
+	unsigned int passkey;
 
-	if (!passkey)
+	if (!passkey_value)
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
-
-	if (!dbus_message_get_args(msg, NULL,
-					DBUS_TYPE_OBJECT_PATH, &path,
-					DBUS_TYPE_INVALID)) {
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_OBJECT_PATH, &path,
+							DBUS_TYPE_INVALID)) {
 		fprintf(stderr, "Invalid arguments for RequestPasskey method");
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 	}
 
 	if (do_reject) {
-		reply = dbus_message_new_error(msg,
-					"org.bluez.Error.Rejected", "");
+		reply = dbus_message_new_error(msg, "org.bluez.Error.Rejected", "");
 		goto send;
 	}
 
@@ -149,10 +148,93 @@ static DBusHandlerResult request_passkey_message(DBusConnection *conn,
 
 	printf("Passkey request for device %s\n", path);
 
-	int_passkey = strtoul(passkey, NULL, 10);
+	if (passkey_delay) {
+		printf("Waiting for %d seconds\n", passkey_delay);
+		sleep(passkey_delay);
+	}
 
-	dbus_message_append_args(reply, DBUS_TYPE_UINT32, &int_passkey,
-					DBUS_TYPE_INVALID);
+	passkey = strtoul(passkey_value, NULL, 10);
+
+	dbus_message_append_args(reply, DBUS_TYPE_UINT32, &passkey,
+							DBUS_TYPE_INVALID);
+
+send:
+	dbus_connection_send(conn, reply, NULL);
+
+	dbus_connection_flush(conn);
+
+	dbus_message_unref(reply);
+
+	return DBUS_HANDLER_RESULT_HANDLED;
+}
+
+static DBusHandlerResult request_confirmation_message(DBusConnection *conn,
+						DBusMessage *msg, void *data)
+{
+	DBusMessage *reply;
+	const char *path;
+	unsigned int passkey;
+
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_OBJECT_PATH, &path,
+						DBUS_TYPE_UINT32, &passkey,
+							DBUS_TYPE_INVALID)) {
+		fprintf(stderr, "Invalid arguments for RequestPasskey method");
+		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+	}
+
+	if (do_reject) {
+		reply = dbus_message_new_error(msg, "org.bluez.Error.Rejected", "");
+		goto send;
+	}
+
+	reply = dbus_message_new_method_return(msg);
+	if (!reply) {
+		fprintf(stderr, "Can't create reply message\n");
+		return DBUS_HANDLER_RESULT_NEED_MEMORY;
+	}
+
+	printf("Confirmation request of %u for device %s\n", passkey, path);
+
+	if (passkey_delay) {
+		printf("Waiting for %d seconds\n", passkey_delay);
+		sleep(passkey_delay);
+	}
+
+send:
+	dbus_connection_send(conn, reply, NULL);
+
+	dbus_connection_flush(conn);
+
+	dbus_message_unref(reply);
+
+	return DBUS_HANDLER_RESULT_HANDLED;
+}
+
+static DBusHandlerResult authorize_message(DBusConnection *conn,
+						DBusMessage *msg, void *data)
+{
+	DBusMessage *reply;
+	const char *path, *uuid;
+
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_OBJECT_PATH, &path,
+						DBUS_TYPE_STRING, &uuid,
+							DBUS_TYPE_INVALID)) {
+		fprintf(stderr, "Invalid arguments for Authorize method");
+		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+	}
+
+	if (do_reject) {
+		reply = dbus_message_new_error(msg, "org.bluez.Error.Rejected", "");
+		goto send;
+	}
+
+	reply = dbus_message_new_method_return(msg);
+	if (!reply) {
+		fprintf(stderr, "Can't create reply message\n");
+		return DBUS_HANDLER_RESULT_NEED_MEMORY;
+	}
+
+	printf("Authorizing request for %s\n", path);
 
 send:
 	dbus_connection_send(conn, reply, NULL);
@@ -221,43 +303,6 @@ static DBusHandlerResult release_message(DBusConnection *conn,
 	return DBUS_HANDLER_RESULT_HANDLED;
 }
 
-static DBusHandlerResult authorize_message(DBusConnection *conn,
-						DBusMessage *msg, void *data)
-{
-	DBusMessage *reply;
-	const char *path, *uuid;
-
-	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_OBJECT_PATH, &path,
-					DBUS_TYPE_STRING, &uuid,
-					DBUS_TYPE_INVALID)) {
-		fprintf(stderr, "Invalid arguments for Authorize method");
-		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
-	}
-
-	if (do_reject) {
-		reply = dbus_message_new_error(msg,
-					"org.bluez.Error.Rejected", "");
-		goto send;
-	}
-
-	reply = dbus_message_new_method_return(msg);
-	if (!reply) {
-		fprintf(stderr, "Can't create reply message\n");
-		return DBUS_HANDLER_RESULT_NEED_MEMORY;
-	}
-
-	printf("Authorizing request for %s\n", path);
-
-send:
-	dbus_connection_send(conn, reply, NULL);
-
-	dbus_connection_flush(conn);
-
-	dbus_message_unref(reply);
-
-	return DBUS_HANDLER_RESULT_HANDLED;
-}
-
 static DBusHandlerResult agent_message(DBusConnection *conn,
 						DBusMessage *msg, void *data)
 {
@@ -269,14 +314,18 @@ static DBusHandlerResult agent_message(DBusConnection *conn,
 							"RequestPasskey"))
 		return request_passkey_message(conn, msg, data);
 
+	if (dbus_message_is_method_call(msg, "org.bluez.Agent",
+							"RequestConfirmation"))
+		return request_confirmation_message(conn, msg, data);
+
+	if (dbus_message_is_method_call(msg, "org.bluez.Agent", "Authorize"))
+		return authorize_message(conn, msg, data);
+
 	if (dbus_message_is_method_call(msg, "org.bluez.Agent", "Cancel"))
 		return cancel_message(conn, msg, data);
 
 	if (dbus_message_is_method_call(msg, "org.bluez.Agent", "Release"))
 		return release_message(conn, msg, data);
-
-	if (dbus_message_is_method_call(msg, "org.bluez.Agent", "Authorize"))
-		return authorize_message(conn, msg, data);
 
 	return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 }
@@ -291,12 +340,6 @@ static int register_agent(DBusConnection *conn, const char *adapter_path,
 {
 	DBusMessage *msg, *reply;
 	DBusError err;
-
-	if (!dbus_connection_register_object_path(conn, agent_path,
-							&agent_table, NULL)) {
-		fprintf(stderr, "Can't register object path for agent\n");
-		return -1;
-	}
 
 	msg = dbus_message_new_method_call("org.bluez", adapter_path,
 					"org.bluez.Adapter", "RegisterAgent");
@@ -529,6 +572,7 @@ static struct option main_options[] = {
 	{ "adapter",	1, 0, 'a' },
 	{ "path",	1, 0, 'p' },
 	{ "capabilites",1, 0, 'c' },
+	{ "delay",	1, 0, 'd' },
 	{ "reject",	0, 0, 'r' },
 	{ "help",	0, 0, 'h' },
 	{ 0, 0, 0, 0 }
@@ -546,7 +590,7 @@ int main(int argc, char *argv[])
 	snprintf(default_path, sizeof(default_path),
 					"/org/bluez/agent_%d", getpid());
 
-	while ((opt = getopt_long(argc, argv, "+a:p:c:rh", main_options, NULL)) != EOF) {
+	while ((opt = getopt_long(argc, argv, "+a:p:c:d:rh", main_options, NULL)) != EOF) {
 		switch(opt) {
 		case 'a':
 			adapter_id = optarg;
@@ -560,6 +604,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'c':
 			capabilities = optarg;
+			break;
+		case 'd':
+			passkey_delay = atoi(optarg);
 			break;
 		case 'r':
 			do_reject = 1;
@@ -581,7 +628,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	passkey = strdup(argv[0]);
+	passkey_value = strdup(argv[0]);
 
 	if (argc > 1)
 		device = strdup(argv[1]);
@@ -598,6 +645,12 @@ int main(int argc, char *argv[])
 	adapter_path = get_adapter_path(conn, adapter_id);
 	if (!adapter_path)
 		exit(1);
+
+	if (!dbus_connection_register_object_path(conn, agent_path,
+							&agent_table, NULL)) {
+		fprintf(stderr, "Can't register object path for agent\n");
+		exit(1);
+	}
 
 	if (device) {
 		if (create_paired_device(conn, adapter_path, agent_path,
@@ -639,7 +692,7 @@ int main(int argc, char *argv[])
 	free(adapter_path);
 	free(agent_path);
 
-	free(passkey);
+	free(passkey_value);
 
 	dbus_connection_unref(conn);
 

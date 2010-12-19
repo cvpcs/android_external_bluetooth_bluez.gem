@@ -3,7 +3,7 @@
  *  BlueZ - Bluetooth protocol stack for Linux
  *
  *  Copyright (C) 2002-2003  Maxim Krasnyansky <maxk@qualcomm.com>
- *  Copyright (C) 2002-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2002-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -367,7 +367,7 @@ static int create_connection(char *dst, bdaddr_t *bdaddr)
 	bacpy(&l2a.l2_bdaddr, bdaddr);
 	l2a.l2_psm = htobs(BNEP_PSM);
 
-	if (!connect(sk, (struct sockaddr *) &l2a, sizeof(l2a)) && 
+	if (!connect(sk, (struct sockaddr *) &l2a, sizeof(l2a)) &&
 			!bnep_create_connection(sk, role, service, netdev)) {
 
 		syslog(LOG_INFO, "%s connected", netdev);
@@ -454,7 +454,7 @@ static int do_connect(void)
 			ba2str(&ii[i].bdaddr, dst);
 
 			if (use_sdp) {
-				syslog(LOG_INFO, "Searching for %s on %s", 
+				syslog(LOG_INFO, "Searching for %s on %s",
 						bnep_svc2str(service), dst);
 
 				if (bnep_sdp_search(&src_addr, &ii[i].bdaddr, service) <= 0)
@@ -512,7 +512,7 @@ static int write_pidfile(void)
 							strerror(errno), errno);
 				return -1;
 			}
-			
+
 			/* We're already running; send a SIGHUP (we presume that they
 			 * are calling ifup for a reason, so they probably want to
 			 * rescan) and then exit cleanly and let things go on in the
@@ -595,7 +595,7 @@ static struct option main_lopts[] = {
 
 static const char *main_sopts = "hsc:k:Kr:d:e:i:lnp::DQ::AESMC::P:u:o:z";
 
-static const char *main_help = 
+static const char *main_help =
 	"Bluetooth PAN daemon version %s\n"
 	"Usage:\n"
 	"\tpand <options>\n"
@@ -745,21 +745,26 @@ int main(int argc, char *argv[])
 	argv += optind;
 	optind = 0;
 
-	if (bnep_init())
+	if (bnep_init()) {
+		free(dst);
 		return -1;
+	}
 
 	/* Check non daemon modes first */
 	switch (mode) {
 	case SHOW:
 		do_show();
+		free(dst);
 		return 0;
 
 	case KILL:
 		do_kill(dst);
+		free(dst);
 		return 0;
 
 	case NONE:
 		printf(main_help, VERSION);
+		free(dst);
 		return 0;
 	}
 
@@ -790,12 +795,15 @@ int main(int argc, char *argv[])
 		if (src_dev < 0 || hci_devba(src_dev, &src_addr) < 0) {
 			syslog(LOG_ERR, "Invalid source. %s(%d)",
 						strerror(errno), errno);
+			free(dst);
 			return -1;
 		}
 	}
 
-	if (pidfile && write_pidfile())
+	if (pidfile && write_pidfile()) {
+		free(dst);
 		return -1;
+	}
 
 	if (dst) {
 		/* Disable cache invalidation */

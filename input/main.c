@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -32,7 +32,7 @@
 #include <gdbus.h>
 
 #include "plugin.h"
-#include "logging.h"
+#include "log.h"
 #include "manager.h"
 
 static GKeyFile *load_config_file(const char *file)

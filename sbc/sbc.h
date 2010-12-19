@@ -2,7 +2,8 @@
  *
  *  Bluetooth low-complexity, subband codec (SBC) library
  *
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2008-2010  Nokia Corporation
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *  Copyright (C) 2004-2005  Henryk Ploetz <henryk@ploetzli.ch>
  *  Copyright (C) 2005-2006  Brad Midgley <bmidgley@xmission.com>
  *
@@ -91,7 +92,7 @@ ssize_t sbc_decode(sbc_t *sbc, const void *input, size_t input_len,
 
 /* Encodes ONE input block into ONE output block */
 ssize_t sbc_encode(sbc_t *sbc, const void *input, size_t input_len,
-			void *output, size_t output_len, size_t *written);
+			void *output, size_t output_len, ssize_t *written);
 
 /* Returns the output block size in bytes */
 size_t sbc_get_frame_length(sbc_t *sbc);

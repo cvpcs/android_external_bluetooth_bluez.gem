@@ -4,7 +4,7 @@
  *
  *  Copyright (C) 2000-2001  Qualcomm Incorporated
  *  Copyright (C) 2002-2003  Maxim Krasnyansky <maxk@qualcomm.com>
- *  Copyright (C) 2002-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2002-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -41,9 +41,9 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/hci.h>
-#include <bluetooth/hci_lib.h>
+#include "bluetooth.h"
+#include "hci.h"
+#include "hci_lib.h"
 
 #ifndef MIN
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
@@ -54,7 +54,7 @@ typedef struct {
 	unsigned int val;
 } hci_map;
 
-static char *hci_bit2str(hci_map *m, unsigned int val) 
+static char *hci_bit2str(hci_map *m, unsigned int val)
 {
 	char *str = malloc(120);
 	char *ptr = str;
@@ -95,7 +95,7 @@ static int hci_str2bit(hci_map *map, char *str, unsigned int *val)
 	return set;
 }
 
-static char *hci_uint2str(hci_map *m, unsigned int val) 
+static char *hci_uint2str(hci_map *m, unsigned int val)
 {
 	char *str = malloc(50);
 	char *ptr = str;
@@ -138,9 +138,9 @@ static int hci_str2uint(hci_map *map, char *str, unsigned int *val)
 	return set;
 }
 
-char *hci_dtypetostr(int type)
+char *hci_bustostr(int bus)
 {
-	switch (type) {
+	switch (bus) {
 	case HCI_VIRTUAL:
 		return "VIRTUAL";
 	case HCI_USB:
@@ -155,6 +155,23 @@ char *hci_dtypetostr(int type)
 		return "PCI";
 	case HCI_SDIO:
 		return "SDIO";
+	default:
+		return "UNKNOWN";
+	}
+}
+
+char *hci_dtypetostr(int type)
+{
+	return hci_bustostr(type & 0x0f);
+}
+
+char *hci_typetostr(int type)
+{
+	switch (type) {
+	case HCI_BREDR:
+		return "BR/EDR";
+	case HCI_80211:
+		return "802.11";
 	default:
 		return "UNKNOWN";
 	}
@@ -192,7 +209,7 @@ char *hci_dflagstostr(uint32_t flags)
 		if (hci_test_bit(m->val, &flags))
 			ptr += sprintf(ptr, "%s ", m->str);
 		m++;
-	} 	
+	}
 	return str;
 }
 
@@ -473,7 +490,7 @@ static hci_map commands_map[] = {
 	{ "Write Simple Pairing Mode",			142 },
 	{ "Read Local OOB Data",			143 },
 
-	{ "Read Inquiry Transmit Power Level",		144 },
+	{ "Read Inquiry Response Transmit Power Level",	144 },
 	{ "Write Inquiry Transmit Power Level",		145 },
 	{ "Read Default Erroneous Data Reporting",	146 },
 	{ "Write Default Erroneous Data Reporting",	147 },
@@ -494,11 +511,83 @@ static hci_map commands_map[] = {
 	{ "Reserved",					160 },
 	{ "Reserved",					161 },
 	{ "Send Keypress Notification",			162 },
-	{ "IO Capabilities Response Negative Reply",	163 },
-	{ "Reserved",					164 },
+	{ "IO Capability Request Negative Reply",	163 },
+	{ "Read Encryption Key Size",			164 },
 	{ "Reserved",					165 },
 	{ "Reserved",					166 },
 	{ "Reserved",					167 },
+
+	{ "Create Physical Link",			168 },
+	{ "Accept Physical Link",			169 },
+	{ "Disconnect Physical Link",			170 },
+	{ "Create Logical Link",			171 },
+	{ "Accept Logical Link",			172 },
+	{ "Disconnect Logical Link",			173 },
+	{ "Logical Link Cancel",			174 },
+	{ "Flow Specification Modify",			175 },
+
+	{ "Read Logical Link Accept Timeout",		176 },
+	{ "Write Logical Link Accept Timeout",		177 },
+	{ "Set Event Mask Page 2",			178 },
+	{ "Read Location Data",				179 },
+	{ "Write Location Data",			180 },
+	{ "Read Local AMP Info",			181 },
+	{ "Read Local AMP_ASSOC",			182 },
+	{ "Write Remote AMP_ASSOC",			183 },
+
+	{ "Read Flow Control Mode",			184 },
+	{ "Write Flow Control Mode",			185 },
+	{ "Read Data Block Size",			186 },
+	{ "Reserved",					187 },
+	{ "Reserved",					188 },
+	{ "Enable AMP Receiver Reports",		189 },
+	{ "AMP Test End",				190 },
+	{ "AMP Test Command",				191 },
+
+	{ "Read Enhanced Transmit Power Level",		192 },
+	{ "Reserved",					193 },
+	{ "Read Best Effort Flush Timeout",		194 },
+	{ "Write Best Effort Flush Timeout",		195 },
+	{ "Short Range Mode",				196 },
+	{ "Read LE Host Support",			197 },
+	{ "Write LE Host Support",			198 },
+	{ "Reserved",					199 },
+
+	{ "LE Set Event Mask",				200 },
+	{ "LE Read Buffer Size",			201 },
+	{ "LE Read Local Supported Features",		202 },
+	{ "Reserved",					203 },
+	{ "LE Set Random Address",			204 },
+	{ "LE Set Advertising Parameters",		205 },
+	{ "LE Read Advertising Channel TX Power",	206 },
+	{ "LE Set Advertising Data",			207 },
+
+	{ "LE Set Scan Response Data",			208 },
+	{ "LE Set Advertise Enable",			209 },
+	{ "LE Set Scan Parameters",			210 },
+	{ "LE Set Scan Enable",				211 },
+	{ "LE Create Connection",			212 },
+	{ "LE Create Connection Cancel",		213 },
+	{ "LE Read White List Size",			214 },
+	{ "LE Clear White List",			215 },
+
+	{ "LE Add Device To White List",		216 },
+	{ "LE Remove Device From White List",		217 },
+	{ "LE Connection Update",			218 },
+	{ "LE Set Host Channel Classification",		219 },
+	{ "LE Read Channel Map",			220 },
+	{ "LE Read Remote Used Features",		221 },
+	{ "LE Encrypt",					222 },
+	{ "LE Rand",					223 },
+
+	{ "LE Start Encryption",			224 },
+	{ "LE Long Term Key Request Reply",		225 },
+	{ "LE Long Term Key Request Negative Reply",	226 },
+	{ "LE Read Supported States",			227 },
+	{ "LE Receiver Test",				228 },
+	{ "LE Transmitter Test",			229 },
+	{ "LE Test End",				230 },
+	{ "Reserved",					231 },
 
 	{ NULL }
 };
@@ -558,6 +647,7 @@ static hci_map ver_map[] = {
 	{ "2.0",	0x03 },
 	{ "2.1",	0x04 },
 	{ "3.0",	0x05 },
+	{ "4.0",	0x06 },
 	{ NULL }
 };
 
@@ -630,8 +720,8 @@ static hci_map lmp_features_map[8][9] = {
 		{ "<no. 34>",		0x04		},	/* Bit 2 */
 		{ "<AFH cap. slave>",	LMP_AFH_CAP_SLV	},	/* Bit 3 */
 		{ "<AFH class. slave>",	LMP_AFH_CLS_SLV	},	/* Bit 4 */
-		{ "<no. 37>",		0x20		},	/* Bit 5 */
-		{ "<no. 38>",		0x40		},	/* Bit 6 */
+		{ "<BR/EDR not supp.>",	LMP_NO_BREDR	},	/* Bit 5 */
+		{ "<LE support>",	LMP_LE		},	/* Bit 6 */
 		{ "<3-slot EDR ACL>",	LMP_EDR_3SLOT	},	/* Bit 7 */
 		{ NULL }
 	},
@@ -648,7 +738,7 @@ static hci_map lmp_features_map[8][9] = {
 	},
 	{	/* Byte 6 */
 		{ "<extended inquiry>",	LMP_EXT_INQ	},	/* Bit 0 */
-		{ "<no. 49>",		0x02		},	/* Bit 1 */
+		{ "<LE and BR/EDR>",	LMP_LE_BREDR	},	/* Bit 1 */
 		{ "<no. 50>",		0x04		},	/* Bit 2 */
 		{ "<simple pairing>",	LMP_SIMPLE_PAIR	},	/* Bit 3 */
 		{ "<encapsulated PDU>",	LMP_ENCAPS_PDU	},	/* Bit 4 */
@@ -660,7 +750,7 @@ static hci_map lmp_features_map[8][9] = {
 	{	/* Byte 7 */
 		{ "<LSTO>",		LMP_LSTO	},	/* Bit 1 */
 		{ "<inquiry TX power>",	LMP_INQ_TX_PWR	},	/* Bit 1 */
-		{ "<no. 58>",		0x04		},	/* Bit 2 */
+		{ "<EPC>",		LMP_EPC		},	/* Bit 2 */
 		{ "<no. 59>",		0x08		},	/* Bit 3 */
 		{ "<no. 60>",		0x10		},	/* Bit 4 */
 		{ "<no. 61>",		0x20		},	/* Bit 5 */
@@ -869,7 +959,7 @@ int hci_inquiry(int dev_id, int len, int nrsp, const uint8_t *lap, inquiry_info 
 			errno = ENODEV;
 			return -1;
 		}
-	}	
+	}
 
 	dd = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
 	if (dd < 0)
@@ -919,7 +1009,7 @@ done:
 	return ret;
 }
 
-/* Open HCI device. 
+/* Open HCI device.
  * Returns device descriptor (dd). */
 int hci_open_dev(int dev_id)
 {
@@ -1003,6 +1093,7 @@ int hci_send_req(int dd, struct hci_request *r, int to)
 	hci_filter_set_ptype(HCI_EVENT_PKT,  &nf);
 	hci_filter_set_event(EVT_CMD_STATUS, &nf);
 	hci_filter_set_event(EVT_CMD_COMPLETE, &nf);
+	hci_filter_set_event(EVT_LE_META_EVENT, &nf);
 	hci_filter_set_event(r->event, &nf);
 	hci_filter_set_opcode(opcode, &nf);
 	if (setsockopt(dd, SOL_HCI, HCI_FILTER, &nf, sizeof(nf)) < 0)
@@ -1016,6 +1107,7 @@ int hci_send_req(int dd, struct hci_request *r, int to)
 		evt_cmd_complete *cc;
 		evt_cmd_status *cs;
 		evt_remote_name_req_complete *rn;
+		evt_le_meta_event *me;
 		remote_name_req_cp *cp;
 		int len;
 
@@ -1094,6 +1186,17 @@ int hci_send_req(int dd, struct hci_request *r, int to)
 
 			r->rlen = MIN(len, r->rlen);
 			memcpy(r->rparam, ptr, r->rlen);
+			goto done;
+
+		case EVT_LE_META_EVENT:
+			me = (void *) ptr;
+
+			if (me->subevent != r->event)
+				continue;
+
+			len -= 1;
+			r->rlen = MIN(len, r->rlen);
+			memcpy(r->rparam, me->data, r->rlen);
 			goto done;
 
 		default:
@@ -2173,16 +2276,16 @@ int hci_read_local_oob_data(int dd, uint8_t *hash, uint8_t *randomizer, int to)
 	return 0;
 }
 
-int hci_read_inquiry_transmit_power_level(int dd, int8_t *level, int to)
+int hci_read_inq_response_tx_power_level(int dd, int8_t *level, int to)
 {
-	read_inquiry_transmit_power_level_rp rp;
+	read_inq_response_tx_power_level_rp rp;
 	struct hci_request rq;
 
 	memset(&rq, 0, sizeof(rq));
 	rq.ogf    = OGF_HOST_CTL;
-	rq.ocf    = OCF_READ_INQUIRY_TRANSMIT_POWER_LEVEL;
+	rq.ocf    = OCF_READ_INQ_RESPONSE_TX_POWER_LEVEL;
 	rq.rparam = &rp;
-	rq.rlen   = READ_INQUIRY_TRANSMIT_POWER_LEVEL_RP_SIZE;
+	rq.rlen   = READ_INQ_RESPONSE_TX_POWER_LEVEL_RP_SIZE;
 
 	if (hci_send_req(dd, &rq, to) < 0)
 		return -1;
@@ -2194,6 +2297,11 @@ int hci_read_inquiry_transmit_power_level(int dd, int8_t *level, int to)
 
 	*level = rp.level;
 	return 0;
+}
+
+int hci_read_inquiry_transmit_power_level(int dd, int8_t *level, int to)
+{
+	return hci_read_inq_response_tx_power_level(dd, level, to);
 }
 
 int hci_write_inquiry_transmit_power_level(int dd, int8_t level, int to)
@@ -2494,5 +2602,145 @@ int hci_read_clock(int dd, uint16_t handle, uint8_t which, uint32_t *clock, uint
 
 	*clock    = rp.clock;
 	*accuracy = rp.accuracy;
+	return 0;
+}
+
+int hci_le_set_scan_enable(int dd, uint8_t enable, uint8_t filter_dup)
+{
+	struct hci_request rq;
+	le_set_scan_enable_cp scan_cp;
+	uint8_t status;
+
+	memset(&scan_cp, 0, sizeof(scan_cp));
+	scan_cp.enable = enable;
+	scan_cp.filter_dup = filter_dup;
+
+	memset(&rq, 0, sizeof(rq));
+	rq.ogf = OGF_LE_CTL;
+	rq.ocf = OCF_LE_SET_SCAN_ENABLE;
+	rq.cparam = &scan_cp;
+	rq.clen = LE_SET_SCAN_ENABLE_CP_SIZE;
+	rq.rparam = &status;
+	rq.rlen = 1;
+
+	if (hci_send_req(dd, &rq, 100) < 0)
+		return -1;
+
+	if (status) {
+		errno = EIO;
+		return -1;
+	}
+
+	return 0;
+}
+
+int hci_le_set_scan_parameters(int dd, uint8_t type,
+					uint16_t interval, uint16_t window,
+					uint8_t own_type, uint8_t filter)
+{
+	struct hci_request rq;
+	le_set_scan_parameters_cp param_cp;
+	uint8_t status;
+
+	memset(&param_cp, 0, sizeof(param_cp));
+	param_cp.type = type;
+	param_cp.interval = interval;
+	param_cp.window = window;
+	param_cp.own_bdaddr_type = own_type;
+	param_cp.filter = filter;
+
+	memset(&rq, 0, sizeof(rq));
+	rq.ogf = OGF_LE_CTL;
+	rq.ocf = OCF_LE_SET_SCAN_PARAMETERS;
+	rq.cparam = &param_cp;
+	rq.clen = LE_SET_SCAN_PARAMETERS_CP_SIZE;
+	rq.rparam = &status;
+	rq.rlen = 1;
+
+	if (hci_send_req(dd, &rq, 100) < 0)
+		return -1;
+
+	if (status) {
+		errno = EIO;
+		return -1;
+	}
+
+	return 0;
+}
+
+int hci_le_set_advertise_enable(int dd, uint8_t enable)
+{
+	struct hci_request rq;
+	le_set_advertise_enable_cp adv_cp;
+	uint8_t status;
+
+	memset(&adv_cp, 0, sizeof(adv_cp));
+	adv_cp.enable = enable;
+
+	memset(&rq, 0, sizeof(rq));
+	rq.ogf = OGF_LE_CTL;
+	rq.ocf = OCF_LE_SET_ADVERTISE_ENABLE;
+	rq.cparam = &adv_cp;
+	rq.clen = LE_SET_ADVERTISE_ENABLE_CP_SIZE;
+	rq.rparam = &status;
+	rq.rlen = 1;
+
+	if (hci_send_req(dd, &rq, 100) < 0)
+		return -1;
+
+	if (status) {
+		errno = EIO;
+		return -1;
+	}
+
+	return 0;
+}
+
+int hci_le_create_conn(int dd, uint16_t interval, uint16_t window,
+		uint8_t initiator_filter, uint8_t peer_bdaddr_type,
+		bdaddr_t peer_bdaddr, uint8_t own_bdaddr_type,
+		uint16_t min_interval, 	uint16_t max_interval,
+		uint16_t latency, uint16_t supervision_timeout,
+		uint16_t min_ce_length, uint16_t max_ce_length,
+		uint16_t *handle, int to)
+{
+	struct hci_request rq;
+	le_create_connection_cp create_conn_cp;
+	evt_le_connection_complete conn_complete_rp;
+
+	memset(&create_conn_cp, 0, sizeof(create_conn_cp));
+	create_conn_cp.interval = interval;
+	create_conn_cp.window = window;
+	create_conn_cp.initiator_filter = initiator_filter;
+	create_conn_cp.peer_bdaddr_type = peer_bdaddr_type;
+	create_conn_cp.peer_bdaddr = peer_bdaddr;
+	create_conn_cp.own_bdaddr_type = own_bdaddr_type;
+	create_conn_cp.min_interval = min_interval;
+	create_conn_cp.max_interval = max_interval;
+	create_conn_cp.latency = latency;
+	create_conn_cp.supervision_timeout = supervision_timeout;
+	create_conn_cp.min_ce_length = min_ce_length;
+	create_conn_cp.max_ce_length = max_ce_length;
+
+	memset(&rq, 0, sizeof(rq));
+	rq.ogf = OGF_LE_CTL;
+	rq.ocf = OCF_LE_CREATE_CONN;
+	rq.event = EVT_LE_CONN_COMPLETE;
+	rq.cparam = &create_conn_cp;
+	rq.clen = LE_CREATE_CONN_CP_SIZE;
+	rq.rparam = &conn_complete_rp;
+	rq.rlen = EVT_CONN_COMPLETE_SIZE;
+
+	if (hci_send_req(dd, &rq, to) < 0)
+		return -1;
+
+	if (conn_complete_rp.status) {
+		errno = EIO;
+		return -1;
+	}
+
+	if (handle)
+		*handle = conn_complete_rp.handle;
+
 	return 0;
 }

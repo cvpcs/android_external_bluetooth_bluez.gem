@@ -3,7 +3,7 @@
  *  BlueZ - Bluetooth protocol stack for Linux
  *
  *  Copyright (C) 2007-2008  Texas Instruments, Inc.
- *  Copyright (C) 2005-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2005-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -446,7 +446,7 @@ int texas_init(int fd, struct termios *ti)
 
 	memset(resp,'\0', 100);
 
-	/* It is possible to get software version with manufacturer specific 
+	/* It is possible to get software version with manufacturer specific
 	   HCI command HCI_VS_TI_Version_Number. But the only thing you get more
 	   is if this is point-to-point or point-to-multipoint module */
 

@@ -13,17 +13,16 @@ LOCAL_SRC_FILES:= \
 	pand.c bnep.c sdp.c
 
 LOCAL_CFLAGS:= \
-	-DVERSION=\"4.47\" -DSTORAGEDIR=\"/data/misc/bluetoothd\" -DNEED_PPOLL -D__ANDROID__
+	-DVERSION=\"4.69\" -DSTORAGEDIR=\"/data/misc/bluetoothd\" -DNEED_PPOLL -D__ANDROID__
 
 LOCAL_C_INCLUDES:=\
-	$(LOCAL_PATH)/../include \
-	$(LOCAL_PATH)/../common \
+	$(LOCAL_PATH)/../lib \
+	$(LOCAL_PATH)/../src \
 
 LOCAL_SHARED_LIBRARIES := \
-	libbluetooth libcutils
-
-LOCAL_STATIC_LIBRARIES := \
-	libbluez-common-static
+	libbluetoothd \
+	libbluetooth \
+	libcutils
 
 LOCAL_MODULE_TAGS :=
 LOCAL_MODULE:=pand

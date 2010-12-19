@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -34,7 +34,7 @@
 #include <glib.h>
 #include <dbus/dbus.h>
 
-#include "logging.h"
+#include "log.h"
 
 #include "glib-helper.h"
 #include "btio.h"
@@ -82,7 +82,7 @@ static void connect_event_cb(GIOChannel *chan, GError *err, gpointer data)
 		return;
 	}
 
-	debug("Incoming connection on PSM %d", psm);
+	DBG("Incoming connection on PSM %d", psm);
 
 	ret = input_device_set_channel(&src, &dst, psm, chan);
 	if (ret == 0)
@@ -187,6 +187,7 @@ int server_start(const bdaddr_t *src)
 				server, NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR, src,
 				BT_IO_OPT_PSM, L2CAP_PSM_HIDP_CTRL,
+				BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_LOW,
 				BT_IO_OPT_INVALID);
 	if (!server->ctrl) {
 		error("Failed to listen on control channel");
@@ -199,6 +200,7 @@ int server_start(const bdaddr_t *src)
 				server, NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR, src,
 				BT_IO_OPT_PSM, L2CAP_PSM_HIDP_INTR,
+				BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_LOW,
 				BT_IO_OPT_INVALID);
 	if (!server->intr) {
 		error("Failed to listen on interrupt channel");

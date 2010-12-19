@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -37,7 +37,7 @@
 #include <glib.h>
 
 #include "plugin.h"
-#include "logging.h"
+#include "log.h"
 
 static struct nl_handle *handle;
 static struct nl_cache *cache;
@@ -53,7 +53,7 @@ static gboolean channel_callback(GIOChannel *chan,
 	if (cond & (G_IO_ERR | G_IO_HUP | G_IO_NVAL))
 		return FALSE;
 
-	debug("Message available on netlink channel");
+	DBG("Message available on netlink channel");
 
 	err = nl_recvmsgs_default(handle);
 
@@ -91,8 +91,8 @@ static int netlink_init(void)
 	cache = genl_ctrl_alloc_cache(handle);
 	if (!cache) {
 		error("Failed to allocate generic netlink cache");
-		return -ENOMEM;
 		nl_handle_destroy(handle);
+		return -ENOMEM;
 	}
 
 	family = genl_ctrl_search_by_name(cache, "bluetooth");

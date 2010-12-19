@@ -3,7 +3,7 @@
  *  BlueZ - Bluetooth protocol stack for Linux
  *
  *  Copyright (C) 2000-2002  Maxim Krasnyansky <maxk@qualcomm.com>
- *  Copyright (C) 2003-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2003-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -296,7 +296,7 @@ static void command_complete(uint16_t ogf, uint16_t ocf, int plen, void *data)
 	he = (void *) ptr; ptr += HCI_EVENT_HDR_SIZE;
 
 	he->evt  = EVT_CMD_COMPLETE;
-	he->plen = EVT_CMD_COMPLETE_SIZE + plen; 
+	he->plen = EVT_CMD_COMPLETE_SIZE + plen;
 
 	cc = (void *) ptr; ptr += EVT_CMD_COMPLETE_SIZE;
 
@@ -328,7 +328,7 @@ static void connect_request(struct vhci_conn *conn)
 	he = (void *) ptr; ptr += HCI_EVENT_HDR_SIZE;
 
 	he->evt  = EVT_CONN_REQUEST;
-	he->plen = EVT_CONN_REQUEST_SIZE; 
+	he->plen = EVT_CONN_REQUEST_SIZE;
 
 	cr = (void *) ptr; ptr += EVT_CONN_REQUEST_SIZE;
 
@@ -356,7 +356,7 @@ static void connect_complete(struct vhci_conn *conn)
 	he = (void *) ptr; ptr += HCI_EVENT_HDR_SIZE;
 
 	he->evt  = EVT_CONN_COMPLETE;
-	he->plen = EVT_CONN_COMPLETE_SIZE; 
+	he->plen = EVT_CONN_COMPLETE_SIZE;
 
 	cc = (void *) ptr; ptr += EVT_CONN_COMPLETE_SIZE;
 

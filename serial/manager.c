@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -55,7 +55,7 @@
 #include "adapter.h"
 #include "device.h"
 
-#include "logging.h"
+#include "log.h"
 #include "textfile.h"
 
 #include "error.h"
@@ -66,14 +66,9 @@
 #include "sdpd.h"
 #include "glib-helper.h"
 
-#define SERIAL_PORT_UUID	"00001101-0000-1000-8000-00805F9B34FB"
-#define DIALUP_NET_UUID		"00001103-0000-1000-8000-00805F9B34FB"
-#define OBJECT_PUSH_UUID	"00001105-0000-1000-8000-00805F9B34FB"
-#define FILE_TRANSFER_UUID	"00001106-0000-1000-8000-00805F9B34FB"
 #define RFCOMM_UUID_STR		"00000003-0000-1000-8000-00805F9B34FB"
 
 static DBusConnection *connection = NULL;
-GSList *adapters = NULL;
 
 static int serial_probe(struct btd_device *device, const char *uuid)
 {

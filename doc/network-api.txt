@@ -1,7 +1,7 @@
 BlueZ D-Bus Network API description
 ***********************************
 
-Copyright (C) 2004-2008  Marcel Holtmann <marcel@holtmann.org>
+Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
 
 
 Network hierarchy
@@ -14,8 +14,16 @@ Object path	[variable prefix]/{hci0,hci1,...}/dev_XX_XX_XX_XX_XX_XX
 Methods		string Connect(string uuid)
 
 			Connect to the network device and return the network
-			device name. Examples of the device name are bnep0,
-			bnep1 etc.
+			interface name. Examples of the interface name are
+			bnep0, bnep1 etc.
+
+			uuid can be either one of "gn", "panu" or "nap" (case
+			insensitive) or a traditional string representation of
+			UUID or a hexadecimal number.
+
+			The connection will be closed and network device
+			released either upon calling Disconnect() or when
+			the client disappears from the message bus.
 
 			Possible errors: org.bluez.Error.AlreadyConnected
 					 org.bluez.Error.ConnectionAttemptFailed
@@ -43,7 +51,7 @@ Properties	boolean Connected [readonly]
 
 			Indicates if the device is connected.
 
-		string Device [readonly]
+		string Interface [readonly]
 
 			Indicates the network interface name when available.
 
@@ -52,35 +60,29 @@ Properties	boolean Connected [readonly]
 			Indicates the connection role when available.
 
 
-Network Hub/Peer/Router hierarchy
-=================
+Network server hierarchy
+========================
 
 Service		org.bluez
-Interface	org.bluez.network.{Hub, Peer, Router}
+Interface	org.bluez.NetworkServer
 Object path	/org/bluez/{hci0,hci1,...}
 
-Methods		dict GetProperties()
+Methods		void Register(string uuid, string bridge)
 
-			Returns all properties for the GN/PANU/NAP server. See the
-			properties section for available properties.
+			Register server for the provided UUID. Every new
+			connection to this server will be added the bridge
+			interface.
 
-		void SetProperty(string name, variant value)
+			Valid UUIDs are "gn", "panu" or "nap".
 
-			Changes the value of the specified property. Only
-			properties that are listed a read-write are changeable.
-			On success this will emit a PropertyChanged signal.
+			Initially no network server SDP is provided. Only
+			after this method a SDP record will be available
+			and the BNEP server will be ready for incoming
+			connections.
 
-			Possible Errors: org.bluez.Error.DoesNotExist
-					 org.bluez.Error.InvalidArguments
+		void Unregister(string uuid)
 
-Properties	string Name[readwrite]
+			Unregister the server for provided UUID.
 
-			The Bluetooth network server name.
-
-		boolean Enable[readwrite]
-
-			Indicates if the server is Enabled/Disabled.
-
-		string Uuid[readonly]
-
-			The Bluetooth network server UUID 128 identification.
+			All servers will be automatically unregistered when
+			the calling application terminates.

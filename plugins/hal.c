@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -34,7 +34,7 @@
 
 #include "plugin.h"
 #include "adapter.h"
-#include "logging.h"
+#include "log.h"
 #include "dbus-hci.h"
 
 static void formfactor_reply(DBusPendingCall *call, void *user_data)
@@ -42,8 +42,7 @@ static void formfactor_reply(DBusPendingCall *call, void *user_data)
 	struct btd_adapter *adapter = user_data;
 	const char *formfactor = NULL;
 	DBusMessage *reply;
-	uint8_t cls[3], minor = 0;
-	int dd;
+	uint8_t minor = 0;
 
 	reply = dbus_pending_call_steal_reply(call);
 
@@ -60,7 +59,7 @@ static void formfactor_reply(DBusPendingCall *call, void *user_data)
 		return;
 	}
 
-	debug("Computer is classified as %s", formfactor);
+	DBG("Computer is classified as %s", formfactor);
 
 	if (formfactor != NULL) {
 		if (g_str_equal(formfactor, "laptop") == TRUE)
@@ -75,24 +74,10 @@ static void formfactor_reply(DBusPendingCall *call, void *user_data)
 
 	dbus_message_unref(reply);
 
-	dd = hci_open_dev(adapter_get_dev_id(adapter));
-	if (dd < 0)
-		return;
-
-	if (hci_read_class_of_dev(dd, cls, 500) < 0) {
-		hci_close_dev(dd);
-		return;
-	}
-
-	debug("Current device class is 0x%02x%02x%02x\n",
-						cls[2], cls[1], cls[0]);
-
 	/* Computer major class */
-	debug("Setting 0x%06x for major/minor device class", (1 << 8) | minor);
+	DBG("Setting 0x%06x for major/minor device class", (1 << 8) | minor);
 
-	hci_close_dev(dd);
-
-	set_major_and_minor_class(adapter, 0x01, minor);
+	btd_adapter_set_class(adapter, 0x01, minor);
 }
 
 static DBusConnection *connection;

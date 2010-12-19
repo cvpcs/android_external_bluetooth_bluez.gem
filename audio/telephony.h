@@ -2,8 +2,8 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2006-2007  Nokia Corporation
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2006-2010  Nokia Corporation
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -155,6 +155,7 @@ void telephony_list_current_calls_req(void *telephony_device);
 void telephony_operator_selection_req(void *telephony_device);
 void telephony_call_hold_req(void *telephony_device, const char *cmd);
 void telephony_nr_and_ec_req(void *telephony_device, gboolean enable);
+void telephony_voice_dial_req(void *telephony_device, gboolean enable);
 void telephony_key_press_req(void *telephony_device, const char *keys);
 
 /* AG responses to HF requests. These are implemented by headset.c */
@@ -170,6 +171,7 @@ int telephony_list_current_calls_rsp(void *telephony_device, cme_error_t err);
 int telephony_operator_selection_rsp(void *telephony_device, cme_error_t err);
 int telephony_call_hold_rsp(void *telephony_device, cme_error_t err);
 int telephony_nr_and_ec_rsp(void *telephony_device, cme_error_t err);
+int telephony_voice_dial_rsp(void *telephony_device, cme_error_t err);
 int telephony_key_press_rsp(void *telephony_device, cme_error_t err);
 
 /* Event indications by AG. These are implemented by headset.c */
@@ -205,10 +207,10 @@ static inline int telephony_update_indicator(struct indicator *indicators,
 	if (!ind)
 		return -ENOENT;
 
-	debug("Telephony indicator \"%s\" %d->%d", desc, ind->val, new_val);
+	DBG("Telephony indicator \"%s\" %d->%d", desc, ind->val, new_val);
 
 	if (ind->ignore_redundant && ind->val == new_val) {
-		debug("Ignoring no-change indication");
+		DBG("Ignoring no-change indication");
 		return 0;
 	}
 

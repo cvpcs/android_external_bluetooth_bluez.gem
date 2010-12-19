@@ -4,7 +4,7 @@
  *
  *  Copyright (C) 2001-2002  Nokia Corporation
  *  Copyright (C) 2002-2003  Maxim Krasnyansky <maxk@qualcomm.com>
- *  Copyright (C) 2002-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2002-2010  Marcel Holtmann <marcel@holtmann.org>
  *  Copyright (C) 2002-2003  Stephen Crane <steve.crane@rococosoft.com>
  *
  *
@@ -40,15 +40,14 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/hci.h>
-#include <bluetooth/hci_lib.h>
-#include <bluetooth/l2cap.h>
-#include <bluetooth/sdp.h>
-#include <bluetooth/sdp_lib.h>
-
 #include <netinet/in.h>
+
+#include "bluetooth.h"
+#include "hci.h"
+#include "hci_lib.h"
+#include "l2cap.h"
+#include "sdp.h"
+#include "sdp_lib.h"
 
 #define SDPINF(fmt, arg...) syslog(LOG_INFO, fmt "\n", ## arg)
 #define SDPERR(fmt, arg...) syslog(LOG_ERR, "%s: " fmt "\n", __func__ , ## arg)
@@ -202,9 +201,9 @@ static struct tupla ServiceClass[] = {
 	{ VIDEO_SOURCE_SVCLASS_ID,		"Video Source"			},
 	{ VIDEO_SINK_SVCLASS_ID,		"Video Sink"			},
 	{ VIDEO_DISTRIBUTION_SVCLASS_ID,	"Video Distribution"		},
-	{ MDP_SVCLASS_ID,			"MDP"				},
-	{ MDP_SOURCE_SVCLASS_ID,		"MDP Source"			},
-	{ MDP_SINK_SVCLASS_ID,			"MDP Sink"			},
+	{ HDP_SVCLASS_ID,			"HDP"				},
+	{ HDP_SOURCE_SVCLASS_ID,		"HDP Source"			},
+	{ HDP_SINK_SVCLASS_ID,			"HDP Sink"			},
 	{ APPLE_AGENT_SVCLASS_ID,		"Apple Agent"			},
 	{ 0 }
 };
@@ -638,14 +637,14 @@ void sdp_attr_remove(sdp_record_t *rec, uint16_t attr)
 
 void sdp_set_seq_len(uint8_t *ptr, uint32_t length)
 {
-	uint8_t dtd = *(uint8_t *) ptr++;
+	uint8_t dtd = *ptr++;
 
 	switch (dtd) {
 	case SDP_SEQ8:
 	case SDP_ALT8:
 	case SDP_TEXT_STR8:
 	case SDP_URL_STR8:
-		*(uint8_t *)ptr = (uint8_t) length;
+		*ptr = (uint8_t) length;
 		break;
 	case SDP_SEQ16:
 	case SDP_ALT16:
@@ -1079,6 +1078,8 @@ static sdp_data_t *extract_int(const void *p, int bufsize, int *len)
 	}
 
 	d = malloc(sizeof(sdp_data_t));
+	if (!d)
+		return NULL;
 
 	SDPDBG("Extracting integer\n");
 	memset(d, 0, sizeof(sdp_data_t));
@@ -1153,13 +1154,16 @@ static sdp_data_t *extract_uuid(const uint8_t *p, int bufsize, int *len,
 {
 	sdp_data_t *d = malloc(sizeof(sdp_data_t));
 
+	if (!d)
+		return NULL;
+
 	SDPDBG("Extracting UUID");
 	memset(d, 0, sizeof(sdp_data_t));
 	if (sdp_uuid_extract(p, bufsize, &d->val.uuid, len) < 0) {
 		free(d);
 		return NULL;
 	}
-	d->dtd = *(uint8_t *) p;
+	d->dtd = *p;
 	if (rec)
 		sdp_pattern_add_uuid(rec, &d->val.uuid);
 	return d;
@@ -1180,6 +1184,8 @@ static sdp_data_t *extract_str(const void *p, int bufsize, int *len)
 	}
 
 	d = malloc(sizeof(sdp_data_t));
+	if (!d)
+		return NULL;
 
 	memset(d, 0, sizeof(sdp_data_t));
 	d->dtd = *(uint8_t *) p;
@@ -1215,7 +1221,7 @@ static sdp_data_t *extract_str(const void *p, int bufsize, int *len)
 	default:
 		SDPERR("Sizeof text string > UINT16_MAX\n");
 		free(d);
-		return 0;
+		return NULL;
 	}
 
 	if (bufsize < n) {
@@ -1302,6 +1308,9 @@ static sdp_data_t *extract_seq(const void *p, int bufsize, int *len,
 	int seqlen, n = 0;
 	sdp_data_t *curr, *prev;
 	sdp_data_t *d = malloc(sizeof(sdp_data_t));
+
+	if (!d)
+		return NULL;
 
 	SDPDBG("Extracting SEQ");
 	memset(d, 0, sizeof(sdp_data_t));
@@ -1575,7 +1584,7 @@ static sdp_data_t *sdp_copy_seq(sdp_data_t *data)
 
 		value = sdp_data_value(tmp, NULL);
 		datatmp = sdp_data_alloc_with_length(tmp->dtd, value,
-					tmp->unitSize);
+								tmp->unitSize);
 
 		if (cur)
 			cur->next = datatmp;
@@ -1601,7 +1610,7 @@ static void sdp_copy_attrlist(void *value, void *udata)
 		sdp_attr_add_new(rec, data->attrId, data->dtd, val);
 	else
 		sdp_attr_add_new_with_length(rec, data->attrId,
-			data->dtd, val, len);
+							data->dtd, val, len);
 }
 
 sdp_record_t *sdp_copy_record(sdp_record_t *rec)
@@ -1703,7 +1712,7 @@ sdp_data_t *sdp_data_get(const sdp_record_t *rec, uint16_t attrId)
 		sdpTemplate.attrId = attrId;
 		p = sdp_list_find(rec->attrlist, &sdpTemplate, sdp_attrid_comp_func);
 		if (p)
-			return (sdp_data_t *)p->data;
+			return p->data;
 	}
 	return NULL;
 }
@@ -1744,8 +1753,8 @@ int sdp_send_req_w4_rsp(sdp_session_t *session, uint8_t *reqbuf,
 			uint8_t *rspbuf, uint32_t reqsize, uint32_t *rspsize)
 {
 	int n;
-	sdp_pdu_hdr_t *reqhdr = (sdp_pdu_hdr_t *)reqbuf;
-	sdp_pdu_hdr_t *rsphdr = (sdp_pdu_hdr_t *)rspbuf;
+	sdp_pdu_hdr_t *reqhdr = (sdp_pdu_hdr_t *) reqbuf;
+	sdp_pdu_hdr_t *rsphdr = (sdp_pdu_hdr_t *) rspbuf;
 
 	SDPDBG("");
 	if (0 > sdp_send_req(session, reqbuf, reqsize)) {
@@ -1772,7 +1781,7 @@ sdp_list_t *sdp_list_append(sdp_list_t *p, void *d)
 	sdp_list_t *q, *n = malloc(sizeof(sdp_list_t));
 
 	if (!n)
-		return 0;
+		return NULL;
 
 	n->data = d;
 	n->next = 0;
@@ -1810,7 +1819,7 @@ sdp_list_t *sdp_list_insert_sorted(sdp_list_t *list, void *d,
 
 	n = malloc(sizeof(sdp_list_t));
 	if (!n)
-		return 0;
+		return NULL;
 	n->data = d;
 	for (q = 0, p = list; p; q = p, p = p->next)
 		if (f(p->data, d) >= 0)
@@ -1867,7 +1876,7 @@ int sdp_get_proto_port(const sdp_list_t *list, int proto)
 	for (; list; list = list->next) {
 		sdp_list_t *p;
 		for (p = list->data; p; p = p->next) {
-			sdp_data_t *seq = (sdp_data_t *) p->data;
+			sdp_data_t *seq = p->data;
 			int port = __find_port(seq, proto);
 			if (port)
 				return port;
@@ -1881,7 +1890,7 @@ sdp_data_t *sdp_get_proto_desc(sdp_list_t *list, int proto)
 	for (; list; list = list->next) {
 		sdp_list_t *p;
 		for (p = list->data; p; p = p->next) {
-			sdp_data_t *seq = (sdp_data_t *) p->data;
+			sdp_data_t *seq = p->data;
 			if (SDP_IS_UUID(seq->dtd) &&
 					sdp_uuid_to_proto(&seq->val.uuid) == proto)
 				return seq->next;
@@ -1946,10 +1955,15 @@ int sdp_get_uuidseq_attr(const sdp_record_t *rec, uint16_t attr,
 		sdp_data_t *d;
 		for (d = sdpdata->val.dataseq; d; d = d->next) {
 			uuid_t *u;
-			if (d->dtd < SDP_UUID16 || d->dtd > SDP_UUID128)
+			if (d->dtd < SDP_UUID16 || d->dtd > SDP_UUID128) {
+				errno = EINVAL;
 				goto fail;
+			}
 
 			u = malloc(sizeof(uuid_t));
+			if (!u)
+				goto fail;
+
 			memset(u, 0, sizeof(uuid_t));
 			*u = d->val.uuid;
 			*seqp = sdp_list_append(*seqp, u);
@@ -1958,7 +1972,7 @@ int sdp_get_uuidseq_attr(const sdp_record_t *rec, uint16_t attr,
 	}
 fail:
 	sdp_list_free(*seqp, free);
-	errno = EINVAL;
+	*seqp = NULL;
 	return -1;
 }
 
@@ -1974,10 +1988,18 @@ int sdp_set_uuidseq_attr(sdp_record_t *rec, uint16_t aid, sdp_list_t *seq)
 	len = sdp_list_len(seq);
 	if (!seq || len == 0)
 		return -1;
-	dtds = (void **)malloc(len * sizeof(void *));
-	values = (void **)malloc(len * sizeof(void *));
+	dtds = malloc(len * sizeof(void *));
+	if (!dtds)
+		return -1;
+
+	values = malloc(len * sizeof(void *));
+	if (!values) {
+		free(dtds);
+		return -1;
+	}
+
 	for (p = seq, i = 0; i < len; i++, p = p->next) {
-		uuid_t *uuid = (uuid_t *)p->data;
+		uuid_t *uuid = p->data;
 		if (uuid)
 			switch (uuid->type) {
 			case SDP_UUID16:
@@ -2027,8 +2049,13 @@ int sdp_get_lang_attr(const sdp_record_t *rec, sdp_list_t **langSeq)
 		sdp_data_t *pCode = curr_data;
 		sdp_data_t *pEncoding = pCode->next;
 		sdp_data_t *pOffset = pEncoding->next;
-		if (pCode && pEncoding && pOffset) {
+		if (pEncoding && pOffset) {
 			lang = malloc(sizeof(sdp_lang_attr_t));
+			if (!lang) {
+				sdp_list_free(*langSeq, free);
+				*langSeq = NULL;
+				return -1;
+			}
 			lang->code_ISO639 = pCode->val.uint16;
 			lang->encoding = pEncoding->val.uint16;
 			lang->base_offset = pOffset->val.uint16;
@@ -2070,6 +2097,11 @@ int sdp_get_profile_descs(const sdp_record_t *rec, sdp_list_t **profDescSeq)
 
 		if (uuid != NULL) {
 			profDesc = malloc(sizeof(sdp_profile_desc_t));
+			if (!profDesc) {
+				sdp_list_free(*profDescSeq, free);
+				*profDescSeq = NULL;
+				return -1;
+			}
 			profDesc->uuid = *uuid;
 			profDesc->version = version;
 #ifdef SDP_DEBUG
@@ -2212,14 +2244,14 @@ void sdp_set_info_attr(sdp_record_t *rec, const char *name, const char *prov,
 							const char *desc)
 {
 	if (name)
-		sdp_attr_add_new(rec, SDP_ATTR_SVCNAME_PRIMARY, SDP_TEXT_STR8,
-								(void *)name);
+		sdp_attr_add_new(rec, SDP_ATTR_SVCNAME_PRIMARY,
+							SDP_TEXT_STR8, name);
 	if (prov)
-		sdp_attr_add_new(rec, SDP_ATTR_PROVNAME_PRIMARY, SDP_TEXT_STR8,
-								(void *)prov);
+		sdp_attr_add_new(rec, SDP_ATTR_PROVNAME_PRIMARY,
+							SDP_TEXT_STR8, prov);
 	if (desc)
-		sdp_attr_add_new(rec, SDP_ATTR_SVCDESC_PRIMARY, SDP_TEXT_STR8,
-								(void *)desc);
+		sdp_attr_add_new(rec, SDP_ATTR_SVCDESC_PRIMARY,
+							SDP_TEXT_STR8, desc);
 }
 
 static sdp_data_t *access_proto_to_dataseq(sdp_record_t *rec, sdp_list_t *proto)
@@ -2231,15 +2263,23 @@ static sdp_data_t *access_proto_to_dataseq(sdp_record_t *rec, sdp_list_t *proto)
 	sdp_list_t *p;
 
 	seqlen = sdp_list_len(proto);
-	seqDTDs = (void **)malloc(seqlen * sizeof(void *));
-	seqs = (void **)malloc(seqlen * sizeof(void *));
+	seqDTDs = malloc(seqlen * sizeof(void *));
+	if (!seqDTDs)
+		return NULL;
+
+	seqs = malloc(seqlen * sizeof(void *));
+	if (!seqs) {
+		free(seqDTDs);
+		return NULL;
+	}
+
 	for (i = 0, p = proto; p; p = p->next, i++) {
-		sdp_list_t *elt = (sdp_list_t *)p->data;
+		sdp_list_t *elt = p->data;
 		sdp_data_t *s;
 		uuid_t *uuid = NULL;
 		unsigned int pslen = 0;
 		for (; elt && pslen < ARRAY_SIZE(dtds); elt = elt->next, pslen++) {
-			sdp_data_t *d = (sdp_data_t *)elt->data;
+			sdp_data_t *d = elt->data;
 			dtds[pslen] = &d->dtd;
 			switch (d->dtd) {
 			case SDP_UUID16:
@@ -2304,8 +2344,7 @@ int sdp_set_access_protos(sdp_record_t *rec, const sdp_list_t *ap)
 	sdp_data_t *protos = NULL;
 
 	for (p = ap; p; p = p->next) {
-		sdp_data_t *seq = access_proto_to_dataseq(rec,
-						(sdp_list_t *) p->data);
+		sdp_data_t *seq = access_proto_to_dataseq(rec, p->data);
 		protos = sdp_seq_append(protos, seq);
 	}
 
@@ -2320,8 +2359,7 @@ int sdp_set_add_access_protos(sdp_record_t *rec, const sdp_list_t *ap)
 	sdp_data_t *protos = NULL;
 
 	for (p = ap; p; p = p->next) {
-		sdp_data_t *seq = access_proto_to_dataseq(rec,
-						(sdp_list_t *) p->data);
+		sdp_data_t *seq = access_proto_to_dataseq(rec, p->data);
 		protos = sdp_seq_append(protos, seq);
 	}
 
@@ -2351,12 +2389,21 @@ int sdp_set_lang_attr(sdp_record_t *rec, const sdp_list_t *seq)
 {
 	uint8_t uint16 = SDP_UINT16;
 	int status = 0, i = 0, seqlen = sdp_list_len(seq);
-	void **dtds = (void **)malloc(3 * seqlen * sizeof(void *));
-	void **values = (void **)malloc(3 * seqlen * sizeof(void *));
+	void **dtds, **values;
 	const sdp_list_t *p;
 
+	dtds = malloc(3 * seqlen * sizeof(void *));
+	if (!dtds)
+		return -1;
+
+	values = malloc(3 * seqlen * sizeof(void *));
+	if (!values) {
+		free(dtds);
+		return -1;
+	}
+
 	for (p = seq; p; p = p->next) {
-		sdp_lang_attr_t *lang = (sdp_lang_attr_t *)p->data;
+		sdp_lang_attr_t *lang = p->data;
 		if (!lang) {
 			status = -1;
 			break;
@@ -2456,14 +2503,23 @@ int sdp_set_profile_descs(sdp_record_t *rec, const sdp_list_t *profiles)
 	uint8_t uuid128 = SDP_UUID128;
 	uint8_t uint16 = SDP_UINT16;
 	int i = 0, seqlen = sdp_list_len(profiles);
-	void **seqDTDs = (void **)malloc(seqlen * sizeof(void *));
-	void **seqs = (void **)malloc(seqlen * sizeof(void *));
+	void **seqDTDs, **seqs;
 	const sdp_list_t *p;
+
+	seqDTDs = malloc(seqlen * sizeof(void *));
+	if (!seqDTDs)
+		return -1;
+
+	seqs = malloc(seqlen * sizeof(void *));
+	if (!seqs) {
+		free(seqDTDs);
+		return -1;
+	}
 
 	for (p = profiles; p; p = p->next) {
 		sdp_data_t *seq;
 		void *dtds[2], *values[2];
-		sdp_profile_desc_t *profile = (sdp_profile_desc_t *)p->data;
+		sdp_profile_desc_t *profile = p->data;
 		if (!profile) {
 			status = -1;
 			break;
@@ -2556,10 +2612,28 @@ uuid_t *sdp_uuid128_create(uuid_t *u, const void *val)
  * UUID comparison function
  * returns 0 if uuidValue1 == uuidValue2 else -1
  */
+int sdp_uuid_cmp(const void *p1, const void *p2)
+{
+	uuid_t *u1 = sdp_uuid_to_uuid128(p1);
+	uuid_t *u2 = sdp_uuid_to_uuid128(p2);
+	int ret;
+
+	ret = sdp_uuid128_cmp(u1, u2);
+
+	bt_free(u1);
+	bt_free(u2);
+
+	return ret;
+}
+
+/*
+ * UUID comparison function
+ * returns 0 if uuidValue1 == uuidValue2 else -1
+ */
 int sdp_uuid16_cmp(const void *p1, const void *p2)
 {
-	const uuid_t *u1 = (const uuid_t *)p1;
-	const uuid_t *u2 = (const uuid_t *)p2;
+	const uuid_t *u1 = p1;
+	const uuid_t *u2 = p2;
 	return memcmp(&u1->value.uuid16, &u2->value.uuid16, sizeof(uint16_t));
 }
 
@@ -2569,8 +2643,8 @@ int sdp_uuid16_cmp(const void *p1, const void *p2)
  */
 int sdp_uuid128_cmp(const void *p1, const void *p2)
 {
-	const uuid_t *u1 = (const uuid_t *)p1;
-	const uuid_t *u2 = (const uuid_t *)p2;
+	const uuid_t *u1 = p1;
+	const uuid_t *u2 = p2;
 	return memcmp(&u1->value.uuid128, &u2->value.uuid128, sizeof(uint128_t));
 }
 
@@ -2579,7 +2653,7 @@ int sdp_uuid128_cmp(const void *p1, const void *p2)
  * yet to be implemented. Note that the input is in NBO in
  * both 32 and 128 bit UUIDs and conversion is needed
  */
-void sdp_uuid16_to_uuid128(uuid_t *uuid128, uuid_t *uuid16)
+void sdp_uuid16_to_uuid128(uuid_t *uuid128, const uuid_t *uuid16)
 {
 	/*
 	 * We have a 16 bit value, which needs to be added to
@@ -2601,7 +2675,7 @@ void sdp_uuid16_to_uuid128(uuid_t *uuid128, uuid_t *uuid16)
 	memcpy(&uuid128->value.uuid128.data[2], &data1, 2);
 }
 
-void sdp_uuid32_to_uuid128(uuid_t *uuid128, uuid_t *uuid32)
+void sdp_uuid32_to_uuid128(uuid_t *uuid128, const uuid_t *uuid32)
 {
 	/*
 	 * We have a 32 bit value, which needs to be added to
@@ -2623,9 +2697,13 @@ void sdp_uuid32_to_uuid128(uuid_t *uuid128, uuid_t *uuid32)
 	memcpy(&uuid128->value.uuid128.data[0], &data0, 4);
 }
 
-uuid_t *sdp_uuid_to_uuid128(uuid_t *uuid)
+uuid_t *sdp_uuid_to_uuid128(const uuid_t *uuid)
 {
 	uuid_t *uuid128 = bt_malloc(sizeof(uuid_t));
+
+	if (!uuid128)
+		return NULL;
+
 	memset(uuid128, 0, sizeof(uuid_t));
 	switch (uuid->type) {
 	case SDP_UUID128:
@@ -2697,14 +2775,14 @@ int sdp_uuid_to_proto(uuid_t *uuid)
 void sdp_append_to_buf(sdp_buf_t *dst, uint8_t *data, uint32_t len)
 {
 	uint8_t *p = dst->data;
-	uint8_t dtd = *(uint8_t *) p;
+	uint8_t dtd = *p;
 
 	SDPDBG("Append src size: %d\n", len);
 	SDPDBG("Append dst size: %d\n", dst->data_size);
 	SDPDBG("Dst buffer size: %d\n", dst->buf_size);
 	if (dst->data_size == 0 && dtd == 0) {
 		/* create initial sequence */
-		*(uint8_t *)p = SDP_SEQ8;
+		*p = SDP_SEQ8;
 		p += sizeof(uint8_t);
 		dst->data_size += sizeof(uint8_t);
 		/* reserve space for sequence size */
@@ -2715,13 +2793,13 @@ void sdp_append_to_buf(sdp_buf_t *dst, uint8_t *data, uint32_t len)
 	memcpy(dst->data + dst->data_size, data, len);
 	dst->data_size += len;
 
-	dtd = *(uint8_t *)dst->data;
+	dtd = *(uint8_t *) dst->data;
 	if (dst->data_size > UCHAR_MAX && dtd == SDP_SEQ8) {
 		short offset = sizeof(uint8_t) + sizeof(uint8_t);
 		memmove(dst->data + offset + 1, dst->data + offset,
 						dst->data_size - offset);
 		p = dst->data;
-		*(uint8_t *) p = SDP_SEQ16;
+		*p = SDP_SEQ16;
 		p += sizeof(uint8_t);
 		dst->data_size += 1;
 	}
@@ -2837,11 +2915,8 @@ int sdp_device_record_register_binary(sdp_session_t *session, bdaddr_t *device, 
 	}
 
 end:
-	if (req)
-		free(req);
-
-	if (rsp)
-		free(rsp);
+	free(req);
+	free(rsp);
 
 	return status;
 }
@@ -2947,11 +3022,8 @@ int sdp_device_record_unregister_binary(sdp_session_t *session, bdaddr_t *device
 		status = -1;
 	}
 end:
-	if (reqbuf)
-		free(reqbuf);
-
-	if (rspbuf)
-		free(rspbuf);
+	free(reqbuf);
+	free(rspbuf);
 
 	return status;
 }
@@ -3055,10 +3127,8 @@ int sdp_device_record_update(sdp_session_t *session, bdaddr_t *device, const sdp
 		status = -1;
 	}
 end:
-	if (reqbuf)
-		free(reqbuf);
-	if (rspbuf)
-		free(rspbuf);
+	free(reqbuf);
+	free(rspbuf);
 	return status;
 }
 
@@ -3070,7 +3140,11 @@ int sdp_record_update(sdp_session_t *session, const sdp_record_t *rec)
 sdp_record_t *sdp_record_alloc()
 {
 	sdp_record_t *rec = malloc(sizeof(sdp_record_t));
-	memset((void *)rec, 0, sizeof(sdp_record_t));
+
+	if (!rec)
+		return NULL;
+
+	memset(rec, 0, sizeof(sdp_record_t));
 	rec->handle = 0xffffffff;
 	return rec;
 }
@@ -3080,7 +3154,7 @@ sdp_record_t *sdp_record_alloc()
  */
 void sdp_record_free(sdp_record_t *rec)
 {
-	sdp_list_free(rec->attrlist, (sdp_free_func_t)sdp_data_free);
+	sdp_list_free(rec->attrlist, (sdp_free_func_t) sdp_data_free);
 	sdp_list_free(rec->pattern, free);
 	free(rec);
 }
@@ -3089,9 +3163,8 @@ void sdp_pattern_add_uuid(sdp_record_t *rec, uuid_t *uuid)
 {
 	uuid_t *uuid128 = sdp_uuid_to_uuid128(uuid);
 
-	SDPDBG("SvcRec : 0x%lx\n", (unsigned long)rec);
 	SDPDBG("Elements in target pattern : %d\n", sdp_list_len(rec->pattern));
-	SDPDBG("Trying to add : 0x%lx\n", (unsigned long)uuid128);
+	SDPDBG("Trying to add : 0x%lx\n", (unsigned long) uuid128);
 
 	if (sdp_list_find(rec->pattern, uuid128, sdp_uuid128_cmp) == NULL)
 		rec->pattern = sdp_list_insert_sorted(rec->pattern, uuid128, sdp_uuid128_cmp);
@@ -3206,7 +3279,7 @@ static int gen_dataseq_pdu(uint8_t *dst, const sdp_list_t *seq, uint8_t dtd)
 
 static int gen_searchseq_pdu(uint8_t *dst, const sdp_list_t *seq)
 {
-	uuid_t *uuid = (uuid_t *) seq->data;
+	uuid_t *uuid = seq->data;
 	return gen_dataseq_pdu(dst, seq, uuid->type);
 }
 
@@ -3237,7 +3310,7 @@ static int copy_cstate(uint8_t *pdata, int pdata_len, const sdp_cstate_t *cstate
 }
 
 /*
- * This is a service search request. 
+ * This is a service search request.
  *
  * INPUT :
  *
@@ -3391,16 +3464,14 @@ int sdp_service_search_req(sdp_session_t *session, const sdp_list_t *search,
 	} while (cstate);
 
 end:
-	if (reqbuf)
-		free(reqbuf);
-	if (rspbuf)
-		free(rspbuf);
+	free(reqbuf);
+	free(rspbuf);
 
 	return status;
 }
 
 /*
- * This is a service attribute request. 
+ * This is a service attribute request.
  *
  * INPUT :
  *
@@ -3421,7 +3492,7 @@ end:
  *
  *   sdp_list_t *attrid
  *     Singly linked list containing attribute identifiers desired.
- *     Every element is either a uint16_t(attrSpec = SDP_ATTR_REQ_INDIVIDUAL)  
+ *     Every element is either a uint16_t(attrSpec = SDP_ATTR_REQ_INDIVIDUAL)
  *     or a uint32_t(attrSpec=SDP_ATTR_REQ_RANGE)
  *
  * OUTPUT :
@@ -3431,7 +3502,7 @@ end:
  *     !0:
  *	 The service record
  */
-sdp_record_t *sdp_service_attr_req(sdp_session_t *session, uint32_t handle, 
+sdp_record_t *sdp_service_attr_req(sdp_session_t *session, uint32_t handle,
 			sdp_attrreq_type_t reqtype, const sdp_list_t *attrids)
 {
 	uint32_t reqsize = 0, _reqsize;
@@ -3449,8 +3520,10 @@ sdp_record_t *sdp_service_attr_req(sdp_session_t *session, uint32_t handle,
 
 	if (reqtype != SDP_ATTR_REQ_INDIVIDUAL && reqtype != SDP_ATTR_REQ_RANGE) {
 		errno = EINVAL;
-		return 0;
+		return NULL;
 	}
+
+	memset(&rsp_concat_buf, 0, sizeof(sdp_buf_t));
 
 	reqbuf = malloc(SDP_REQ_BUFFER_SIZE);
 	rspbuf = malloc(SDP_RSP_BUFFER_SIZE);
@@ -3458,7 +3531,6 @@ sdp_record_t *sdp_service_attr_req(sdp_session_t *session, uint32_t handle,
 		errno = ENOMEM;
 		goto end;
 	}
-	memset((char *) &rsp_concat_buf, 0, sizeof(sdp_buf_t));
 	reqhdr = (sdp_pdu_hdr_t *) reqbuf;
 	reqhdr->pdu_id = SDP_SVC_ATTR_REQ;
 
@@ -3476,7 +3548,7 @@ sdp_record_t *sdp_service_attr_req(sdp_session_t *session, uint32_t handle,
 	pdata += sizeof(uint16_t);
 
 	// get attr seq PDU form
-	seqlen = gen_attridseq_pdu(pdata, attrids, 
+	seqlen = gen_attridseq_pdu(pdata, attrids,
 		reqtype == SDP_ATTR_REQ_INDIVIDUAL? SDP_UINT16 : SDP_UINT32);
 	if (seqlen == -1) {
 		errno = EINVAL;
@@ -3540,7 +3612,7 @@ sdp_record_t *sdp_service_attr_req(sdp_session_t *session, uint32_t handle,
 		SDPDBG("sdp_cstate_t length : %d\n", cstate_len);
 
 		/*
-		 * a split response: concatenate intermediate responses 
+		 * a split response: concatenate intermediate responses
 		 * and the last one (which has cstate_len == 0)
 		 */
 		if (cstate_len > 0 || rsp_concat_buf.data_size != 0) {
@@ -3565,14 +3637,11 @@ sdp_record_t *sdp_service_attr_req(sdp_session_t *session, uint32_t handle,
 		}
 		rec = sdp_extract_pdu(pdata, pdata_len, &scanned);
 	}
-	
+
 end:
-	if (reqbuf)
-		free(reqbuf);
-	if (rsp_concat_buf.data)
-		free(rsp_concat_buf.data);
-	if (rspbuf)
-		free(rspbuf);
+	free(reqbuf);
+	free(rsp_concat_buf.data);
+	free(rspbuf);
 	return rec;
 }
 
@@ -3658,7 +3727,7 @@ int sdp_set_notify(sdp_session_t *session, sdp_callback_t *func, void *udata)
 
 /*
  * This function starts an asynchronous service search request.
- * The incomming and outgoing data are stored in the transaction structure 
+ * The incomming and outgoing data are stored in the transaction structure
  * buffers. When there is incomming data the sdp_process function must be
  * called to get the data and handle the continuation state.
  *
@@ -3695,9 +3764,8 @@ int sdp_service_search_async(sdp_session_t *session, const sdp_list_t *search, u
 
 	t = session->priv;
 
-	/* check if the buffer is already allocated */
-	if (t->rsp_concat_buf.data)
-		free(t->rsp_concat_buf.data);
+	/* clean possible allocated buffer */
+	free(t->rsp_concat_buf.data);
 	memset(&t->rsp_concat_buf, 0, sizeof(sdp_buf_t));
 
 	if (!t->reqbuf) {
@@ -3743,17 +3811,15 @@ int sdp_service_search_async(sdp_session_t *session, const sdp_list_t *search, u
 	return 0;
 end:
 
-	if (t->reqbuf) {
-		free(t->reqbuf);
-		t->reqbuf = NULL;
-	}
+	free(t->reqbuf);
+	t->reqbuf = NULL;
 
 	return -1;
 }
 
 /*
  * This function starts an asynchronous service attribute request.
- * The incomming and outgoing data are stored in the transaction structure 
+ * The incomming and outgoing data are stored in the transaction structure
  * buffers. When there is incomming data the sdp_process function must be
  * called to get the data and handle the continuation state.
  *
@@ -3778,7 +3844,7 @@ end:
  *
  *   sdp_list_t *attrid_list
  *     Singly linked list containing attribute identifiers desired.
- *     Every element is either a uint16_t(attrSpec = SDP_ATTR_REQ_INDIVIDUAL)  
+ *     Every element is either a uint16_t(attrSpec = SDP_ATTR_REQ_INDIVIDUAL)
  *     or a uint32_t(attrSpec=SDP_ATTR_REQ_RANGE)
  *
  * OUTPUT :
@@ -3799,9 +3865,8 @@ int sdp_service_attr_async(sdp_session_t *session, uint32_t handle, sdp_attrreq_
 
 	t = session->priv;
 
-	/* check if the buffer is already allocated */
-	if (t->rsp_concat_buf.data)
-		free(t->rsp_concat_buf.data);
+	/* clean possible allocated buffer */
+	free(t->rsp_concat_buf.data);
 	memset(&t->rsp_concat_buf, 0, sizeof(sdp_buf_t));
 
 	if (!t->reqbuf) {
@@ -3857,10 +3922,8 @@ int sdp_service_attr_async(sdp_session_t *session, uint32_t handle, sdp_attrreq_
 	return 0;
 end:
 
-	if (t->reqbuf) {
-		free(t->reqbuf);
-		t->reqbuf = NULL;
-	}
+	free(t->reqbuf);
+	t->reqbuf = NULL;
 
 	return -1;
 }
@@ -3894,7 +3957,7 @@ end:
  *
  *   sdp_list_t *attrid_list
  *     Singly linked list containing attribute identifiers desired.
- *     Every element is either a uint16_t(attrSpec = SDP_ATTR_REQ_INDIVIDUAL)  
+ *     Every element is either a uint16_t(attrSpec = SDP_ATTR_REQ_INDIVIDUAL)
  *     or a uint32_t(attrSpec=SDP_ATTR_REQ_RANGE)
  *
 
@@ -3914,9 +3977,8 @@ int sdp_service_search_attr_async(sdp_session_t *session, const sdp_list_t *sear
 
 	t = session->priv;
 
-	/* check if the buffer is already allocated */
-	if (t->rsp_concat_buf.data)
-		free(t->rsp_concat_buf.data);
+	/* clean possible allocated buffer */
+	free(t->rsp_concat_buf.data);
 	memset(&t->rsp_concat_buf, 0, sizeof(sdp_buf_t));
 
 	if (!t->reqbuf) {
@@ -3976,10 +4038,8 @@ int sdp_service_search_attr_async(sdp_session_t *session, const sdp_list_t *sear
 	return 0;
 end:
 
-	if (t->reqbuf) {
-		free(t->reqbuf);
-		t->reqbuf = NULL;
-	}
+	free(t->reqbuf);
+	t->reqbuf = NULL;
 
 	return -1;
 }
@@ -4112,7 +4172,7 @@ int sdp_process(sdp_session_t *session)
 			pdata += sizeof(uint16_t); /* point to csrc */
 
 			/* the first csrc contains the sum of partial csrc responses */
-			*pcsrc += bt_get_unaligned((uint16_t *) pdata); 
+			*pcsrc += bt_get_unaligned((uint16_t *) pdata);
 
 			pdata += sizeof(uint16_t); /* point to the first handle */
 			rsp_count = csrc * 4;
@@ -4123,8 +4183,8 @@ int sdp_process(sdp_session_t *session)
 	case SDP_SVC_SEARCH_ATTR_RSP:
 		rsp_count = ntohs(bt_get_unaligned((uint16_t *) pdata));
 		SDPDBG("Attrlist byte count : %d\n", rsp_count);
-	
-		/* 
+
+		/*
 		 * Number of bytes in the AttributeLists parameter(without
 		 * continuation state) + AttributeListsByteCount field size.
 		 */
@@ -4150,7 +4210,7 @@ int sdp_process(sdp_session_t *session)
 
 	SDPDBG("Cstate length : %d\n", pcstate->length);
 
-	/* 
+	/*
 	 * Check out of bound. Continuation state must have at least
 	 * 1 byte: ZERO to indicate that it is not a partial response.
 	 */
@@ -4184,7 +4244,7 @@ int sdp_process(sdp_session_t *session)
 
 		// set the request header's param length
 		reqhdr->plen = htons(reqsize - sizeof(sdp_pdu_hdr_t));
-	
+
 		if (sdp_send_req(session, t->reqbuf, reqsize) < 0) {
 			SDPERR("Error sendind data:%s(%d)", strerror(errno), errno);
 			status = 0xffff;
@@ -4204,8 +4264,7 @@ end:
 			t->cb(pdu_id, status, pdata, size, t->udata);
 	}
 
-	if (rspbuf)
-		free(rspbuf);
+	free(rspbuf);
 
 	return err;
 }
@@ -4235,7 +4294,7 @@ end:
  *
  *   sdp_list_t *attrids
  *     Singly linked list containing attribute identifiers desired.
- *     Every element is either a uint16_t(attrSpec = SDP_ATTR_REQ_INDIVIDUAL)  
+ *     Every element is either a uint16_t(attrSpec = SDP_ATTR_REQ_INDIVIDUAL)
  *     or a uint32_t(attrSpec=SDP_ATTR_REQ_RANGE)
  *
  * OUTPUT :
@@ -4271,6 +4330,9 @@ int sdp_service_search_attr_req(sdp_session_t *session, const sdp_list_t *search
 		errno = EINVAL;
 		return -1;
 	}
+
+	memset(&rsp_concat_buf, 0, sizeof(sdp_buf_t));
+
 	reqbuf = malloc(SDP_REQ_BUFFER_SIZE);
 	rspbuf = malloc(SDP_RSP_BUFFER_SIZE);
 	if (!reqbuf || !rspbuf) {
@@ -4279,7 +4341,6 @@ int sdp_service_search_attr_req(sdp_session_t *session, const sdp_list_t *search
 		goto end;
 	}
 
-	memset((char *)&rsp_concat_buf, 0, sizeof(sdp_buf_t));
 	reqhdr = (sdp_pdu_hdr_t *) reqbuf;
 	reqhdr->pdu_id = SDP_SVC_SEARCH_ATTR_REQ;
 
@@ -4437,12 +4498,9 @@ int sdp_service_search_attr_req(sdp_session_t *session, const sdp_list_t *search
 		}
 	}
 end:
-	if (rsp_concat_buf.data)
-		free(rsp_concat_buf.data);
-	if (reqbuf)
-		free(reqbuf);
-	if (rspbuf)
-		free(rspbuf);
+	free(rsp_concat_buf.data);
+	free(reqbuf);
+	free(rspbuf);
 	return status;
 }
 
@@ -4473,11 +4531,9 @@ int sdp_close(sdp_session_t *session)
 	t = session->priv;
 
 	if (t) {
-		if (t->reqbuf)
-			free(t->reqbuf);
+		free(t->reqbuf);
 
-		if (t->rsp_concat_buf.data)
-			free(t->rsp_concat_buf.data);
+		free(t->rsp_concat_buf.data);
 
 		free(t);
 	}
@@ -4502,7 +4558,7 @@ static int sdp_connect_local(sdp_session_t *session)
 	sa.sun_family = AF_UNIX;
 	strcpy(sa.sun_path, SDP_UNIX_PATH);
 
-	return connect(session->sock, (struct sockaddr *)&sa, sizeof(sa));
+	return connect(session->sock, (struct sockaddr *) &sa, sizeof(sa));
 }
 
 static int sdp_connect_l2cap(const bdaddr_t *src,
@@ -4584,8 +4640,7 @@ fail:
 	err = errno;
 	if (session->sock >= 0)
 		close(session->sock);
-	if (session->priv)
-		free(session->priv);
+	free(session->priv);
 	free(session);
 	errno = err;
 
@@ -4601,3 +4656,162 @@ uint16_t sdp_gen_tid(sdp_session_t *session)
 {
 	return session->tid++;
 }
+
+/*
+ * Set the supported features
+ */
+int sdp_set_supp_feat(sdp_record_t *rec, const sdp_list_t *sf)
+{
+	const sdp_list_t *p, *r;
+	sdp_data_t *feat, *seq_feat;
+	int seqlen, i;
+	void **seqDTDs, **seqVals;
+
+	seqlen = sdp_list_len(sf);
+	seqDTDs = malloc(seqlen * sizeof(void *));
+	if (!seqDTDs)
+		return -1;
+	seqVals = malloc(seqlen * sizeof(void *));
+	if (!seqVals) {
+		free(seqDTDs);
+		return -1;
+	}
+
+	for (p = sf, i = 0; p; p = p->next, i++) {
+		int plen, j;
+		void **dtds, **vals;
+		int *lengths;
+
+		plen = sdp_list_len(p->data);
+		dtds = malloc(plen * sizeof(void *));
+		if (!dtds)
+			goto fail;
+		vals = malloc(plen * sizeof(void *));
+		if (!vals) {
+			free(dtds);
+			goto fail;
+		}
+		lengths = malloc(plen * sizeof(int *));
+		if (!lengths) {
+			free(dtds);
+			free(vals);
+			goto fail;
+		}
+		for (r = p->data, j = 0; r; r = r->next, j++) {
+			sdp_data_t *data = (sdp_data_t*)r->data;
+			dtds[j] = &data->dtd;
+			switch (data->dtd) {
+			case SDP_URL_STR8:
+			case SDP_URL_STR16:
+			case SDP_TEXT_STR8:
+			case SDP_TEXT_STR16:
+				vals[j] = data->val.str;
+				lengths[j] = data->unitSize - sizeof(uint8_t);
+				break;
+			case SDP_ALT8:
+			case SDP_ALT16:
+			case SDP_ALT32:
+			case SDP_SEQ8:
+			case SDP_SEQ16:
+			case SDP_SEQ32:
+				vals[j] = data->val.dataseq;
+				lengths[j] = 0;
+				break;
+			default:
+				vals[j] = &data->val;
+				lengths[j] = 0;
+				break;
+			}
+		}
+		feat = sdp_seq_alloc_with_length(dtds, vals, lengths, plen);
+		free(dtds);
+		free(vals);
+		free(lengths);
+		if (!feat)
+			goto fail;
+		seqDTDs[i] = &feat->dtd;
+		seqVals[i] = feat;
+	}
+	seq_feat = sdp_seq_alloc(seqDTDs, seqVals, seqlen);
+	if (!seq_feat)
+		goto fail;
+	sdp_attr_replace(rec, SDP_ATTR_SUPPORTED_FEATURES_LIST, seq_feat);
+
+	free(seqVals);
+	free(seqDTDs);
+	return 0;
+
+fail:
+	free(seqVals);
+	free(seqDTDs);
+	return -1;
+}
+
+/*
+ * Get the supported features
+ * If an error occurred -1 is returned and errno is set
+ */
+int sdp_get_supp_feat(const sdp_record_t *rec, sdp_list_t **seqp)
+{
+	sdp_data_t *sdpdata, *d;
+	sdp_list_t *tseq;
+	tseq = NULL;
+
+	sdpdata = sdp_data_get(rec, SDP_ATTR_SUPPORTED_FEATURES_LIST);
+
+	if (!sdpdata || sdpdata->dtd < SDP_SEQ8 || sdpdata->dtd > SDP_SEQ32)
+		return sdp_get_uuidseq_attr(rec,
+					SDP_ATTR_SUPPORTED_FEATURES_LIST, seqp);
+
+	for (d = sdpdata->val.dataseq; d; d = d->next) {
+		sdp_data_t *dd;
+		sdp_list_t *subseq;
+
+		if (d->dtd < SDP_SEQ8 || d->dtd > SDP_SEQ32)
+			goto fail;
+
+		subseq = NULL;
+
+		for (dd = d->val.dataseq; dd; dd = dd->next) {
+			sdp_data_t *data;
+			void *val;
+			int length;
+
+			switch (dd->dtd) {
+			case SDP_URL_STR8:
+			case SDP_URL_STR16:
+			case SDP_TEXT_STR8:
+			case SDP_TEXT_STR16:
+				val = dd->val.str;
+				length = dd->unitSize - sizeof(uint8_t);
+				break;
+			case SDP_UINT8:
+			case SDP_UINT16:
+				val = &dd->val;
+				length = 0;
+				break;
+			default:
+				goto fail;
+			}
+
+			data = sdp_data_alloc_with_length(dd->dtd, val, length);
+			if (data)
+				subseq = sdp_list_append(subseq, data);
+		}
+		tseq = sdp_list_append(tseq, subseq);
+	}
+	*seqp = tseq;
+	return 0;
+
+fail:
+	while (tseq) {
+		sdp_list_t * next;
+
+		next = tseq->next;
+		sdp_list_free(tseq, free);
+		tseq = next;
+	}
+	errno = EINVAL;
+	return -1;
+}
+

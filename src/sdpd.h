@@ -4,7 +4,7 @@
  *
  *  Copyright (C) 2001-2002  Nokia Corporation
  *  Copyright (C) 2002-2003  Maxim Krasnyansky <maxk@qualcomm.com>
- *  Copyright (C) 2002-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2002-2010  Marcel Holtmann <marcel@holtmann.org>
  *  Copyright (C) 2002-2003  Stephen Crane <steve.crane@rococosoft.com>
  *
  *
@@ -70,6 +70,7 @@ sdp_buf_t *sdp_get_cached_rsp(sdp_cont_state_t *cstate);
 void sdp_cstate_cache_init(void);
 void sdp_cstate_clean_buf(void);
 
+int record_sort(const void *r1, const void *r2);
 void sdp_svcdb_reset(void);
 void sdp_svcdb_collect_all(int sock);
 void sdp_svcdb_set_collectable(sdp_record_t *rec, int sock);
@@ -93,6 +94,7 @@ void stop_sdp_server(void);
 int add_record_to_server(const bdaddr_t *src, sdp_record_t *rec);
 int remove_record_from_server(uint32_t handle);
 
-uint8_t get_service_classes(const bdaddr_t *bdaddr);
-void create_ext_inquiry_response(const char *name, uint8_t *data);
+void create_ext_inquiry_response(const char *name,
+					int8_t tx_power, sdp_list_t *services,
+					uint8_t *data);
 static inline int android_get_control_socket(const char *name);

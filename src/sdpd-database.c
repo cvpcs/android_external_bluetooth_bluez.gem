@@ -4,7 +4,7 @@
  *
  *  Copyright (C) 2001-2002  Nokia Corporation
  *  Copyright (C) 2002-2003  Maxim Krasnyansky <maxk@qualcomm.com>
- *  Copyright (C) 2002-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2002-2010  Marcel Holtmann <marcel@holtmann.org>
  *  Copyright (C) 2002-2003  Stephen Crane <steve.crane@rococosoft.com>
  *
  *
@@ -39,7 +39,8 @@
 #include <bluetooth/sdp_lib.h>
 
 #include "sdpd.h"
-#include "logging.h"
+#include "log.h"
+#include "adapter.h"
 
 static sdp_list_t *service_db;
 static sdp_list_t *access_db;
@@ -54,7 +55,7 @@ typedef struct {
  * The service repository is a linked list in sorted order
  * and the service record handle is the sort key
  */
-static int record_sort(const void *r1, const void *r2)
+int record_sort(const void *r1, const void *r2)
 {
 	const sdp_record_t *rec1 = (const sdp_record_t *) r1;
 	const sdp_record_t *rec2 = (const sdp_record_t *) r2;
@@ -183,6 +184,8 @@ void sdp_record_add(const bdaddr_t *device, sdp_record_t *rec)
 	dev->handle = rec->handle;
 
 	access_db = sdp_list_insert_sorted(access_db, dev, access_sort);
+
+	adapter_service_insert(device, rec);
 }
 
 static sdp_list_t *record_locate(uint32_t handle)
@@ -252,6 +255,7 @@ int sdp_record_remove(uint32_t handle)
 	if (p) {
 		a = (sdp_access_t *) p->data;
 		if (a) {
+			adapter_service_remove(&a->device, r);
 			access_db = sdp_list_remove(access_db, a);
 			access_free(a);
 		}

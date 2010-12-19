@@ -2,8 +2,8 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2006-2007  Nokia Corporation
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2006-2010  Nokia Corporation
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -73,7 +73,7 @@ int read_device_alias(const char *src, const char *dst, char *alias, size_t size
 
 	free(tmp);
 
-	return err;
+	return err < 0 ? -EIO : 0;
 }
 
 int write_device_alias(const char *src, const char *dst, const char *alias)
@@ -203,7 +203,7 @@ int read_on_mode(const char *src, char *mode, int length)
 	return 0;
 }
 
-int write_local_name(bdaddr_t *bdaddr, char *name)
+int write_local_name(bdaddr_t *bdaddr, const char *name)
 {
 	char filename[PATH_MAX + 1], str[249];
 	int i;
@@ -483,21 +483,81 @@ int write_version_info(bdaddr_t *local, bdaddr_t *peer, uint16_t manufacturer,
 	return textfile_put(filename, addr, str);
 }
 
-int write_features_info(bdaddr_t *local, bdaddr_t *peer, unsigned char *features)
+int write_features_info(bdaddr_t *local, bdaddr_t *peer,
+				unsigned char *page1, unsigned char *page2)
 {
-	char filename[PATH_MAX + 1], addr[18], str[17];
+	char filename[PATH_MAX + 1], addr[18];
+	char str[] = "0000000000000000 0000000000000000";
+	char *old_value;
 	int i;
 
-	memset(str, 0, sizeof(str));
-	for (i = 0; i < 8; i++)
-		sprintf(str + (i * 2), "%2.2X", features[i]);
+	ba2str(peer, addr);
+
+	create_filename(filename, PATH_MAX, local, "features");
+	create_file(filename, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+
+	old_value = textfile_get(filename, addr);
+
+	if (page1)
+		for (i = 0; i < 8; i++)
+			sprintf(str + (i * 2), "%2.2X", page1[i]);
+	else if (old_value && strlen(old_value) >= 16)
+		strncpy(str, old_value, 16);
+
+	if (page2)
+		for (i = 0; i < 8; i++)
+			sprintf(str + 17 + (i * 2), "%2.2X", page2[i]);
+	else if (old_value && strlen(old_value) >= 33)
+		strncpy(str + 17, old_value + 17, 16);
+
+	free(old_value);
+
+	return textfile_put(filename, addr, str);
+}
+
+static int decode_bytes(const char *str, unsigned char *bytes, size_t len)
+{
+	unsigned int i;
+
+	for (i = 0; i < len; i++) {
+		if (sscanf(str + (i * 2), "%02hhX", &bytes[i]) != 1)
+			return -EINVAL;
+	}
+
+	return 0;
+}
+
+int read_remote_features(bdaddr_t *local, bdaddr_t *peer,
+				unsigned char *page1, unsigned char *page2)
+{
+	char filename[PATH_MAX + 1], addr[18], *str;
+	size_t len;
+	int err;
+
+	if (page1 == NULL && page2 == NULL)
+		return -EINVAL;
 
 	create_filename(filename, PATH_MAX, local, "features");
 
-	create_file(filename, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-
 	ba2str(peer, addr);
-	return textfile_put(filename, addr, str);
+
+	str = textfile_get(filename, addr);
+	if (!str)
+		return -ENOENT;
+
+	len = strlen(str);
+
+	err = -ENOENT;
+
+	if (page1 && len >= 16)
+		err = decode_bytes(str, page1, 8);
+
+	if (page2 && len >= 33)
+		err = decode_bytes(str + 17, page2, 8);
+
+	free(str);
+
+	return err;
 }
 
 int write_lastseen_info(bdaddr_t *local, bdaddr_t *peer, struct tm *tm)
@@ -569,6 +629,11 @@ int read_link_key(bdaddr_t *local, bdaddr_t *peer, unsigned char *key, uint8_t *
 	str = textfile_get(filename, addr);
 	if (!str)
 		return -ENOENT;
+
+	if (!key) {
+		free(str);
+		return 0;
+	}
 
 	memset(tmp, 0, sizeof(tmp));
 	for (i = 0; i < 16; i++) {
@@ -698,8 +763,7 @@ int write_trust(const char *src, const char *addr, const char *service,
 	/* If the old setting is the same as the requested one, we're done */
 	if (trusted == trust) {
 		g_slist_free(services);
-		if (str)
-			free(str);
+		free(str);
 		return 0;
 	}
 
@@ -719,8 +783,7 @@ int write_trust(const char *src, const char *addr, const char *service,
 
 	g_slist_free(services);
 
-	if (str)
-		free(str);
+	free(str);
 
 	return ret;
 }
@@ -908,10 +971,9 @@ static void create_stored_records_from_keys(char *key, char *value,
 	rec_list->recs = sdp_list_append(rec_list->recs, rec);
 }
 
-void delete_all_records(bdaddr_t *src, bdaddr_t *dst)
+void delete_all_records(const bdaddr_t *src, const bdaddr_t *dst)
 {
 	sdp_list_t *records, *seq;
-	sdp_record_t *rec;
 	char srcaddr[18], dstaddr[18];
 
 	ba2str(src, srcaddr);
@@ -920,7 +982,7 @@ void delete_all_records(bdaddr_t *src, bdaddr_t *dst)
 	records = read_records(src, dst);
 
 	for (seq = records; seq; seq = seq->next) {
-		rec = seq->data;
+		sdp_record_t *rec = seq->data;
 		delete_record(srcaddr, dstaddr, rec->handle);
 	}
 
@@ -928,7 +990,7 @@ void delete_all_records(bdaddr_t *src, bdaddr_t *dst)
 		sdp_list_free(records, (sdp_free_func_t) sdp_record_free);
 }
 
-sdp_list_t *read_records(bdaddr_t *src, bdaddr_t *dst)
+sdp_list_t *read_records(const bdaddr_t *src, const bdaddr_t *dst)
 {
 	char filename[PATH_MAX + 1];
 	struct record_list rec_list;
@@ -1140,4 +1202,38 @@ int read_device_pairable(bdaddr_t *bdaddr, gboolean *mode)
 	free(str);
 
 	return 0;
+}
+
+gboolean read_blocked(const bdaddr_t *local, const bdaddr_t *remote)
+{
+	char filename[PATH_MAX + 1], *str, addr[18];
+
+	create_filename(filename, PATH_MAX, local, "blocked");
+
+	ba2str(remote, addr);
+
+	str = textfile_caseget(filename, addr);
+	if (!str)
+		return FALSE;
+
+	free(str);
+
+	return TRUE;
+}
+
+int write_blocked(const bdaddr_t *local, const bdaddr_t *remote,
+							gboolean blocked)
+{
+	char filename[PATH_MAX + 1], addr[18];
+
+	create_filename(filename, PATH_MAX, local, "blocked");
+
+	create_file(filename, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+
+	ba2str(remote, addr);
+
+	if (blocked == FALSE)
+		return textfile_casedel(filename, addr);
+
+	return textfile_caseput(filename, addr, "");
 }

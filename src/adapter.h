@@ -2,8 +2,8 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2006-2007  Nokia Corporation
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2006-2010  Nokia Corporation
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -23,6 +23,7 @@
  */
 
 #include <bluetooth/bluetooth.h>
+#include <bluetooth/sdp.h>
 #include <dbus/dbus.h>
 #include <glib.h>
 
@@ -69,7 +70,6 @@ struct hci_dev {
 
 	uint8_t  ssp_mode;
 	uint8_t  name[MAX_NAME_LENGTH];
-	uint8_t  class[3];
 };
 
 int adapter_start(struct btd_adapter *adapter);
@@ -77,10 +77,6 @@ int adapter_start(struct btd_adapter *adapter);
 int adapter_stop(struct btd_adapter *adapter);
 
 int adapter_update(struct btd_adapter *adapter, uint8_t cls);
-
-int adapter_get_class(struct btd_adapter *adapter, uint8_t *cls);
-
-int adapter_set_class(struct btd_adapter *adapter, uint8_t *cls);
 
 int adapter_update_ssp_mode(struct btd_adapter *adapter, uint8_t mode);
 
@@ -91,10 +87,9 @@ struct btd_device *adapter_find_device(struct btd_adapter *adapter, const char *
 
 struct btd_device *adapter_find_connection(struct btd_adapter *adapter, uint16_t handle);
 
-void adapter_disable_svc_cache(struct btd_adapter *adapter);
-
 void adapter_remove_device(DBusConnection *conn, struct btd_adapter *adapter,
-				struct btd_device *device);
+						struct btd_device *device,
+						gboolean remove_storage);
 struct btd_device *adapter_create_device(DBusConnection *conn,
 				struct btd_adapter *adapter, const char *address);
 
@@ -125,7 +120,12 @@ void adapter_emit_device_found(struct btd_adapter *adapter,
 void adapter_update_oor_devices(struct btd_adapter *adapter);
 void adapter_mode_changed(struct btd_adapter *adapter, uint8_t scan_mode);
 void adapter_setname_complete(bdaddr_t *local, uint8_t status);
+void adapter_update_tx_power(bdaddr_t *bdaddr, uint8_t status, void *ptr);
 void adapter_update_local_name(bdaddr_t *bdaddr, uint8_t status, void *ptr);
+void adapter_service_insert(const bdaddr_t *bdaddr, void *rec);
+void adapter_service_remove(const bdaddr_t *bdaddr, void *rec);
+sdp_list_t *adapter_get_services(struct btd_adapter *adapter);
+void adapter_set_class_complete(bdaddr_t *bdaddr, uint8_t status);
 
 struct agent *adapter_get_agent(struct btd_adapter *adapter);
 void adapter_add_connection(struct btd_adapter *adapter,
@@ -136,8 +136,9 @@ gboolean adapter_has_discov_sessions(struct btd_adapter *adapter);
 
 struct btd_adapter *btd_adapter_ref(struct btd_adapter *adapter);
 void btd_adapter_unref(struct btd_adapter *adapter);
-int set_major_and_minor_class(struct btd_adapter *adapter, uint8_t major,
-								uint8_t minor);
+
+int btd_adapter_set_class(struct btd_adapter *adapter, uint8_t major,
+							uint8_t minor);
 
 
 struct btd_adapter_driver {
@@ -162,6 +163,7 @@ gboolean adapter_is_pairable(struct btd_adapter *adapter);
 gboolean adapter_powering_down(struct btd_adapter *adapter);
 
 int btd_adapter_restore_powered(struct btd_adapter *adapter);
+int btd_adapter_switch_online(struct btd_adapter *adapter);
 int btd_adapter_switch_offline(struct btd_adapter *adapter);
 
 struct btd_adapter_ops {
@@ -172,7 +174,7 @@ struct btd_adapter_ops {
 	int (*set_powered) (int index, gboolean powered);
 	int (*set_connectable) (int index);
 	int (*set_discoverable) (int index);
-	int (*set_limited_discoverable) (int index, const uint8_t *cls,
+	int (*set_limited_discoverable) (int index, uint32_t class,
 						gboolean limited);
 	int (*start_discovery) (int index, gboolean periodic);
 	int (*stop_discovery) (int index);
@@ -180,6 +182,7 @@ struct btd_adapter_ops {
 	int (*cancel_resolve_name) (int index, bdaddr_t *bdaddr);
 	int (*set_name) (int index, const char *name);
 	int (*read_name) (int index);
+	int (*set_class) (int index, uint32_t class);
 };
 
 int btd_register_adapter_ops(struct btd_adapter_ops *btd_adapter_ops);

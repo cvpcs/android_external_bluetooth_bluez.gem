@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2002-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2002-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -30,7 +30,7 @@ int read_pairable_timeout(const char *src, int *timeout);
 int write_device_mode(bdaddr_t *bdaddr, const char *mode);
 int read_device_mode(const char *src, char *mode, int length);
 int read_on_mode(const char *src, char *mode, int length);
-int write_local_name(bdaddr_t *bdaddr, char *name);
+int write_local_name(bdaddr_t *bdaddr, const char *name);
 int read_local_name(bdaddr_t *bdaddr, char *name);
 int write_local_class(bdaddr_t *bdaddr, uint8_t *class);
 int read_local_class(bdaddr_t *bdaddr, uint8_t *class);
@@ -47,7 +47,8 @@ int read_l2cap_info(bdaddr_t *local, bdaddr_t *peer,
 			uint16_t *mtu_result, uint16_t *mtu,
 			uint16_t *mask_result, uint32_t *mask);
 int write_version_info(bdaddr_t *local, bdaddr_t *peer, uint16_t manufacturer, uint8_t lmp_ver, uint16_t lmp_subver);
-int write_features_info(bdaddr_t *local, bdaddr_t *peer, unsigned char *features);
+int write_features_info(bdaddr_t *local, bdaddr_t *peer, unsigned char *page1, unsigned char *page2);
+int read_remote_features(bdaddr_t *local, bdaddr_t *peer, unsigned char *page1, unsigned char *page2);
 int write_lastseen_info(bdaddr_t *local, bdaddr_t *peer, struct tm *tm);
 int write_lastused_info(bdaddr_t *local, bdaddr_t *peer, struct tm *tm);
 int write_link_key(bdaddr_t *local, bdaddr_t *peer, unsigned char *key, uint8_t type, int length);
@@ -63,8 +64,8 @@ int store_record(const gchar *src, const gchar *dst, sdp_record_t *rec);
 sdp_record_t *record_from_string(const gchar *str);
 sdp_record_t *fetch_record(const gchar *src, const gchar *dst, const uint32_t handle);
 int delete_record(const gchar *src, const gchar *dst, const uint32_t handle);
-void delete_all_records(bdaddr_t *src, bdaddr_t *dst);
-sdp_list_t *read_records(bdaddr_t *src, bdaddr_t *dst);
+void delete_all_records(const bdaddr_t *src, const bdaddr_t *dst);
+sdp_list_t *read_records(const bdaddr_t *src, const bdaddr_t *dst);
 sdp_record_t *find_record_in_list(sdp_list_t *recs, const char *uuid);
 int store_device_id(const gchar *src, const gchar *dst,
 				const uint16_t source, const uint16_t vendor,
@@ -74,6 +75,9 @@ int read_device_id(const gchar *src, const gchar *dst,
 					uint16_t *product, uint16_t *version);
 int write_device_pairable(bdaddr_t *local, gboolean mode);
 int read_device_pairable(bdaddr_t *local, gboolean *mode);
+gboolean read_blocked(const bdaddr_t *local, const bdaddr_t *remote);
+int write_blocked(const bdaddr_t *local, const bdaddr_t *remote,
+							gboolean blocked);
 
 #define PNP_UUID		"00001200-0000-1000-8000-00805f9b34fb"
 

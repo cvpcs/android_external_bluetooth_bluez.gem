@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This library is free software; you can redistribute it and/or
@@ -27,6 +27,7 @@
 
 #include <string.h>
 
+#include "gstpragma.h"
 #include "gstsbcutil.h"
 #include "gstsbcenc.h"
 

@@ -2,8 +2,8 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2006-2007  Nokia Corporation
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2006-2010  Nokia Corporation
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -31,6 +31,7 @@ typedef enum {
 	AUTH_TYPE_PASSKEY,
 	AUTH_TYPE_CONFIRM,
 	AUTH_TYPE_NOTIFY,
+	AUTH_TYPE_OOB,
 	AUTH_TYPE_AUTO,
 	AUTH_TYPE_PAIRING_CONSENT,
 } auth_type_t;
@@ -38,8 +39,8 @@ typedef enum {
 struct btd_device *device_create(DBusConnection *conn, struct btd_adapter *adapter,
 				const gchar *address);
 void device_set_name(struct btd_device *device, const char *name);
-void device_remove(struct btd_device *device, DBusConnection *conn,
-						gboolean remove_stored);
+void device_get_name(struct btd_device *device, char *name, size_t len);
+void device_remove(struct btd_device *device, gboolean remove_stored);
 gint device_address_cmp(struct btd_device *device, const gchar *address);
 int device_browse(struct btd_device *device, DBusConnection *conn,
 			DBusMessage *msg, uuid_t *search, gboolean reverse);
@@ -51,21 +52,24 @@ struct btd_adapter *device_get_adapter(struct btd_device *device);
 void device_get_address(struct btd_device *adapter, bdaddr_t *bdaddr);
 const gchar *device_get_path(struct btd_device *device);
 struct agent *device_get_agent(struct btd_device *device);
-void device_set_agent(struct btd_device *device, struct agent *agent);
 gboolean device_is_busy(struct btd_device *device);
 gboolean device_is_temporary(struct btd_device *device);
 gboolean device_is_paired(struct btd_device *device);
+gboolean device_is_trusted(struct btd_device *device);
+void device_set_paired(struct btd_device *device, gboolean paired);
 void device_set_temporary(struct btd_device *device, gboolean temporary);
 void device_set_cap(struct btd_device *device, uint8_t cap);
 uint8_t device_get_cap(struct btd_device *device);
 void device_set_auth(struct btd_device *device, uint8_t auth);
 uint8_t device_get_auth(struct btd_device *device);
 gboolean device_is_connected(struct btd_device *device);
+gboolean device_get_secmode3_conn(struct btd_device *device);
 void device_set_secmode3_conn(struct btd_device *device, gboolean enable);
 DBusMessage *device_create_bonding(struct btd_device *device,
 				DBusConnection *conn, DBusMessage *msg,
-				const char *agent_path, uint8_t capability);
-void device_remove_bondind(struct btd_device *device, DBusConnection *connection);
+				const char *agent_path, uint8_t capability,
+				gboolean oob);
+void device_remove_bonding(struct btd_device *device);
 void device_bonding_complete(struct btd_device *device, uint8_t status);
 void device_simple_pairing_complete(struct btd_device *device, uint8_t status);
 gboolean device_is_creating(struct btd_device *device, const char *sender);
@@ -73,11 +77,15 @@ gboolean device_is_bonding(struct btd_device *device, const char *sender);
 void device_cancel_bonding(struct btd_device *device, uint8_t status);
 int device_request_authentication(struct btd_device *device, auth_type_t type,
 				uint32_t passkey, void *cb);
+int device_request_oob_availability(struct btd_device *device,
+				void *cb, void  *user_data);
 void device_cancel_authentication(struct btd_device *device, gboolean aborted);
 gboolean device_is_authenticating(struct btd_device *device);
 gboolean device_is_authorizing(struct btd_device *device);
 void device_set_authorizing(struct btd_device *device, gboolean auth);
 void device_set_renewed_key(struct btd_device *device, gboolean renewed);
+gboolean device_set_debug_key(struct btd_device *device, uint8_t *key);
+gboolean device_get_debug_key(struct btd_device *device, uint8_t *key);
 void device_add_connection(struct btd_device *device, DBusConnection *conn,
 				uint16_t handle);
 uint16_t device_get_handle(struct btd_device *device);

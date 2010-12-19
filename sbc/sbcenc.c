@@ -2,7 +2,8 @@
  *
  *  Bluetooth low-complexity, subband codec (SBC) encoder
  *
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2008-2010  Nokia Corporation
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -49,7 +50,7 @@ static void encode(char *filename, int subbands, int bitpool, int joint,
 	struct au_header au_hdr;
 	sbc_t sbc;
 	int fd, size, srate, codesize, nframes;
-	size_t encoded;
+	ssize_t encoded;
 	ssize_t len;
 
 	if (sizeof(au_hdr) != 24) {
@@ -205,7 +206,7 @@ done:
 static void usage(void)
 {
 	printf("SBC encoder utility ver %s\n", VERSION);
-	printf("Copyright (c) 2004-2009  Marcel Holtmann\n\n");
+	printf("Copyright (c) 2004-2010  Marcel Holtmann\n\n");
 
 	printf("Usage:\n"
 		"\tsbcenc [options] file(s)\n"

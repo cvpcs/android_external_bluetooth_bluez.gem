@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -21,8 +21,8 @@
  *
  */
 
-int connection_init(DBusConnection *conn, const char *iface_prefix);
-void connection_exit();
+int connection_init(DBusConnection *conn);
+void connection_exit(void);
 int connection_register(struct btd_device *device, const char *path,
 			bdaddr_t *src, bdaddr_t *dst, uint16_t id);
 void connection_unregister(const char *path, uint16_t id);

@@ -1,3 +1,176 @@
+ver 4.69:
+	Fix issue with calling g_option_context_free() twice.
+	Fix inconsistencies with initial LE commands and events.
+	Add support for telephony ClearLastNumber method.
+	Add support for network server interface.
+
+ver 4.68:
+	Fix initialization of adapters in RAW mode.
+	Fix signal strength for HFP in Maemo's telephony support.
+	Add support for following the radio state via Maemo's MCE.
+	Add initial set of LE commands and events definitions.
+	Add mode option for L2CAP sockets to the BtIO API.
+
+ver 4.67:
+	Fix issue with authentication reply when bonding already completed.
+	Fix issue with not canceling authentication when bonding fails.
+	Fix issue with changed combination keys and temporary storage.
+	Fix issue with sdp_get_supp_feat library function.
+	Fix issue with missing unblock on device removal.
+	Fix issue with not waiting for mode change completion.
+	Add ARMv6 optimized version of analysis filter for SBC encoder.
+
+ver 4.66:
+	Fix regression with full debug enabling via SIGUSR2.
+	Fix redundant speaker/microphone gains being sent.
+	Fix not emitting PropertyChanged for SpeakerGain/MicrophoneGain.
+	Fix issue with storage usage when a record is not found in memory.
+	Fix issue with DiscoverServices not retrieving any records.
+	Fix audio profile disconnection order to match whitepaper.
+	Fix auto-accept confirmation when local agent has NoInputNoOutput.
+	Fix remote just-works SSP when MITM protection is required.
+	Fix performing dedicated bonding without MITM requirement.
+	Add support for storing debug link keys in runtime memory.
+
+ver 4.65:
+	Fix issues with general bonding being default setting now.
+	Fix driver removal upon device removal.
+	Add new "Blocked" property to device objects.
+	Add hciconfig support for blacklisting.
+	Add support for dynamic debug feature.
+
+ver 4.64:
+	Fix invalid memory access in headset_get_nrec function.
+	Fix issue with disconnect event on higher protocol layers.
+	Fix issue with list parsing in sdp_set_supp_features function.
+	Fix device object reference counting for SDP browse requests.
+	Add missing memory checks whenever memory is allocated for SDP.
+	Add support for exporting local services via D-Bus.
+	Add more L2CAP Enhanced Retransmission test options.
+
+ver 4.63:
+	Fix avdtp_abort not canceling pending requests.
+	Fix stale connection when abort gets rejected.
+
+ver 4.62:
+	Fix accidental symbol breakage with inquiry transmit power.
+	Fix using invalid data from previous headset connection.
+	Fix double free on AVDTP Abort response.
+	Fix possible crash while verifying AVDTP version.
+	Fix missing inuse flag when AVDTP stream is configured.
+	Add support for Bluetooth controller types.
+
+ver 4.61:
+	Fix issues with Read Inquiry Response Transmit Power Level.
+	Fix possible invalid read when removing a temporary device.
+	Fix mode restoration when remember_powered is false.
+	Fix conference call releasing in telephony-maemo.
+	Fix segmentation fault with authorization during headset disconnects.
+	Add support for handling unanswered AVDTP request on disconnect.
+	Add support for handling Inquiry Response Transmit Power Level.
+	Add support for caching of remote host features.
+	Add preliminary voice dialing support for HSP.
+
+ver 4.60:
+	Fix voice mailbox number reading from SIM.
+	Fix some races with D-Bus mainloop integration.
+	Add helpers for D-Bus signal watches.
+
+ver 4.59:
+	Add values for Bluetooth 4.0 specification.
+	Add SDP functions for HDP support.
+	Add test scripts for input and audio.
+	Fix missing close on BtIO create_io function.
+	Fix sending incorrect AVDTP commands after timeout occurs.
+	Fix timer removal when device disconnects unexpectedly.
+	Fix Extended Inquiry Response record for Device ID.
+
+ver 4.58:
+	Fix crash when adapter agent exists during authentication.
+	Fix CK-20W quirks for play and pause events.
+
+ver 4.57:
+	Fix unloading of drivers for uninitialized adapters.
+	Fix debug message to use requested and not opened SEID.
+	Fix codec selection for GStreamer plugin.
+	Fix deleting of SDP records during service updates.
+	Fix deleting of SDP records when a device is removed.
+	Fix handling when the SDP record is modified on remote device.
+	Fix potential buffer overflow by using snprintf instead of sprintf.
+	Fix const declarations for some storage function parameters.
+
+ver 4.56:
+	Add missing values from Bluetooth 3.0 specification.
+	Add proper tracking of device paired status.
+	Fix tracking of devices without permanently stored link key.
+	Fix issue with link key removal after connection failures.
+	Fix legacy pairing information based on remote host features.
+	Fix off-by-one issue with AVDTP capability parsing.
+	Fix AVRCP, AVCTP, AVDTP, A2DP and HFP version numbers.
+	Fix agent canceling before calling agent_destroy.
+	Fix service record parsing with an empty UUID list.
+	Fix various SDP related memory leaks.
+
+ver 4.55:
+	Add support for POSIX capabilities dropping.
+	Add special quirk for the Nokia CK-20W car kit.
+	Fix error code handling for AVDTP SetConfiguration response.
+	Fix updating out of range list when RSSI hasn't changed.
+	Fix various memory leaks and unnecessary error checks.
+
+ver 4.54:
+	Add introspection interface to output of introspection calls.
+	Fix stream handling when media transport disconnects prematurely.
+	Fix command timeout handling when there's no stream.
+	Fix headset_suspend_stream behavior for invalid states
+	Fix issue with AVDTP ABORTING state transition.
+	Fix issue with AVDTP suspend while closing.
+
+ver 4.53:
+	Fix issue with telephony connection state notifications.
+	Fix AVDTP stream leak for invalid media transport config.
+	Fix audio connection authorization handling with timeouts.
+	Fix race condition in authorizing audio connections.
+	Fix device authorized setting for AVRCP-only connections.
+	Fix duplicate attempts from device to connect signal channel.
+
+ver 4.52:
+	Add AVCTP support to test utility.
+	Fix AVDTP Abort when transport closes before response.
+	Fix authorization when the audio profiles are slow to connect.
+	Fix potential AVDTP reference leaks.
+
+ver 4.51:
+	Add utility for basic AVDTP testing.
+	Add support for configuring L2CAP FCS option.
+	Fix discovery mode for CUPS 1.4.x and later.
+	Fix global state tracking of audio service.
+	Fix last issues with the new build system.
+
+ver 4.50:
+	Fix issue with missing manual pages in distribution.
+	Fix issue with the configuration and state directories.
+	Fix issue with creating include directory.
+	Fix dependencies of include file generation.
+
+ver 4.49:
+	Add simple test program for basic GAP testing.
+	Add support for confirmation requests to agent example.
+	Add support for full non-recursive build.
+	Add five millisecond delay for Simple Pairing auto-accept.
+	Fix Class of Device setting when InitiallyPowered=false.
+
+ver 4.48:
+	Add library function for comparing UUID values.
+	Add support for creating all plugins as builtins.
+	Add support for async handling of service class changes.
+	Add support for source interface to audio IPC.
+	Fix device name settings when device is off or down.
+	Fix issue with enabled SCO server when not necessary.
+	Fix missing D-Bus access policy for CUPS backend.
+	Fix discovery results of CUPS backend.
+	Fix initialization handling of Maemo telephony.
+
 ver 4.47:
 	Add support for RFKILL unblock handling.
 	Add support for serial proxy configurations.

@@ -4,7 +4,7 @@
  *
  *  Copyright (C) 2000-2001  Qualcomm Incorporated
  *  Copyright (C) 2002-2003  Maxim Krasnyansky <maxk@qualcomm.com>
- *  Copyright (C) 2002-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2002-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -47,10 +47,11 @@
 #include <dbus/dbus.h>
 
 #include "hcid.h"
-#include "logging.h"
+#include "log.h"
 #include "textfile.h"
 
 #include "adapter.h"
+#include "device.h"
 #include "dbus-hci.h"
 #include "storage.h"
 #include "manager.h"
@@ -126,7 +127,8 @@ static void hci_req_queue_process(int dev_id)
 
 	do {
 		struct hci_req_data *data;
-		GSList *l = g_slist_find_custom(hci_req_queue, &dev_id, hci_req_find_by_devid);
+		GSList *l = g_slist_find_custom(hci_req_queue, &dev_id,
+							hci_req_find_by_devid);
 
 		if (!l)
 			break;
@@ -134,7 +136,8 @@ static void hci_req_queue_process(int dev_id)
 		data = l->data;
 		data->status = REQ_SENT;
 
-		ret_val = hci_send_cmd(dd, data->ogf, data->ocf, data->clen, data->cparam);
+		ret_val = hci_send_cmd(dd, data->ogf, data->ocf,
+						data->clen, data->cparam);
 		if (ret_val < 0) {
 			hci_req_queue = g_slist_remove(hci_req_queue, data);
 			g_free(data->cparam);
@@ -151,10 +154,10 @@ static void hci_req_queue_append(struct hci_req_data *data)
 	GSList *l;
 	struct hci_req_data *match;
 
-
 	hci_req_queue = g_slist_append(hci_req_queue, data);
 
-	l = g_slist_find_custom(hci_req_queue, &data->dev_id, hci_req_find_by_devid);
+	l = g_slist_find_custom(hci_req_queue, &data->dev_id,
+							hci_req_find_by_devid);
 	match = l->data;
 
 	if (match->status == REQ_SENT)
@@ -299,11 +302,16 @@ static inline void update_lastused(bdaddr_t *sba, bdaddr_t *dba)
 
 static void link_key_request(int dev, bdaddr_t *sba, bdaddr_t *dba)
 {
+	struct btd_adapter *adapter;
+	struct btd_device *device;
 	struct hci_auth_info_req req;
 	unsigned char key[16];
 	char sa[18], da[18];
 	uint8_t type;
 	int err;
+
+	if (!get_adapter_and_device(sba, dba, &adapter, &device, FALSE))
+		device = NULL;
 
 	ba2str(sba, sa); ba2str(dba, da);
 	info("link_key_request (sba=%s, dba=%s)", sa, da);
@@ -314,33 +322,37 @@ static void link_key_request(int dev, bdaddr_t *sba, bdaddr_t *dba)
 	err = ioctl(dev, HCIGETAUTHINFO, (unsigned long) &req);
 	if (err < 0) {
 		if (errno != EINVAL)
-			debug("HCIGETAUTHINFO failed %s (%d)",
+			DBG("HCIGETAUTHINFO failed %s (%d)",
 						strerror(errno), errno);
 		req.type = 0x00;
 	}
 
-	debug("kernel auth requirements = 0x%02x", req.type);
+	DBG("kernel auth requirements = 0x%02x", req.type);
 
-	err = read_link_key(sba, dba, key, &type);
-	if (err < 0) {
+	if (main_opts.debug_keys && device && device_get_debug_key(device, key))
+		type = 0x03;
+	else if (read_link_key(sba, dba, key, &type) < 0 || type == 0x03) {
 		/* Link key not found */
 		hci_send_cmd(dev, OGF_LINK_CTL, OCF_LINK_KEY_NEG_REPLY, 6, dba);
-	} else {
-		/* Link key found */
+		return;
+	}
+
+	/* Link key found */
+
+	DBG("link key type = 0x%02x", type);
+
+	/* Don't use unauthenticated combination keys if MITM is
+	 * required */
+	if (type == 0x04 && req.type != 0xff && (req.type & 0x01))
+		hci_send_cmd(dev, OGF_LINK_CTL, OCF_LINK_KEY_NEG_REPLY,
+								6, dba);
+	else {
 		link_key_reply_cp lr;
+
 		memcpy(lr.link_key, key, 16);
 		bacpy(&lr.bdaddr, dba);
 
-		debug("stored link key type = 0x%02x", type);
-
-		/* Don't use debug link keys (0x03) and also don't use
-		 * unauthenticated combination keys if MITM is required */
-		if (type == 0x03 || (type == 0x04 && req.type != 0xff &&
-							(req.type & 0x01)))
-			hci_send_cmd(dev, OGF_LINK_CTL,
-					OCF_LINK_KEY_NEG_REPLY, 6, dba);
-		else
-			hci_send_cmd(dev, OGF_LINK_CTL, OCF_LINK_KEY_REPLY,
+		hci_send_cmd(dev, OGF_LINK_CTL, OCF_LINK_KEY_REPLY,
 						LINK_KEY_REPLY_CP_SIZE, &lr);
 	}
 }
@@ -365,11 +377,14 @@ static void link_key_notify(int dev, bdaddr_t *sba, void *ptr)
 	dev_id = hci_devid(sa);
 	if (dev_id < 0)
 		err = -errno;
-	else
+	else {
 		err = hcid_dbus_link_key_notify(sba, dba, evt->link_key,
 						evt->key_type,
 						io_data[dev_id].pin_length,
 						old_key_type);
+		io_data[dev_id].pin_length = -1;
+	}
+
 	if (err < 0) {
 		uint16_t handle;
 
@@ -391,8 +406,6 @@ static void link_key_notify(int dev, bdaddr_t *sba, void *ptr)
 						DISCONNECT_CP_SIZE, &cp);
 		}
 	}
-
-	io_data[dev_id].pin_length = -1;
 }
 
 static void return_link_keys(int dev, bdaddr_t *sba, void *ptr)
@@ -412,6 +425,8 @@ static void return_link_keys(int dev, bdaddr_t *sba, void *ptr)
 		memcpy(key, ptr + 6, 16);
 
 		info("return_link_keys (sba=%s, dba=%s)", sa, da);
+
+		hcid_dbus_returned_link_key(sba, &dba);
 
 		ptr += 22;
 	}
@@ -447,33 +462,28 @@ static void user_passkey_notify(int dev, bdaddr_t *sba, void *ptr)
 
 static void remote_oob_data_request(int dev, bdaddr_t *sba, void *ptr)
 {
-	hci_send_cmd(dev, OGF_LINK_CTL, OCF_REMOTE_OOB_DATA_NEG_REPLY, 6, ptr);
+	evt_remote_oob_data_request *req = ptr;
+
+	if (hcid_dbus_get_oob_data(sba, &req->bdaddr) < 0)
+		hci_send_cmd(dev, OGF_LINK_CTL, OCF_REMOTE_OOB_DATA_NEG_REPLY,
+				6, ptr);
 }
 
 static void io_capa_request(int dev, bdaddr_t *sba, bdaddr_t *dba)
 {
 	char sa[18], da[18];
-	uint8_t cap, auth;
 
-	ba2str(sba, sa); ba2str(dba, da);
+	ba2str(sba, sa);
+	ba2str(dba, da);
 	info("io_capa_request (sba=%s, dba=%s)", sa, da);
 
-	if (hcid_dbus_get_io_cap(sba, dba, &cap, &auth) < 0) {
+	if (hcid_dbus_get_io_cap(sba, dba) < 0) {
 		io_capability_neg_reply_cp cp;
 		memset(&cp, 0, sizeof(cp));
 		bacpy(&cp.bdaddr, dba);
 		cp.reason = HCI_PAIRING_NOT_ALLOWED;
 		hci_send_cmd(dev, OGF_LINK_CTL, OCF_IO_CAPABILITY_NEG_REPLY,
 					IO_CAPABILITY_NEG_REPLY_CP_SIZE, &cp);
-	} else {
-		io_capability_reply_cp cp;
-		memset(&cp, 0, sizeof(cp));
-		bacpy(&cp.bdaddr, dba);
-		cp.capability = cap;
-		cp.oob_data = 0x00;
-		cp.authentication = auth;
-		hci_send_cmd(dev, OGF_LINK_CTL, OCF_IO_CAPABILITY_REPLY,
-					IO_CAPABILITY_REPLY_CP_SIZE, &cp);
 	}
 }
 
@@ -651,6 +661,18 @@ static void inquiry_complete(bdaddr_t *local, uint8_t status, gboolean periodic)
 	adapter_set_state(adapter, state);
 }
 
+static inline void remote_features_notify(int dev, bdaddr_t *sba, void *ptr)
+{
+	evt_remote_host_features_notify *evt = ptr;
+
+	if (evt->features[0] & 0x01)
+		hcid_dbus_set_legacy_pairing(sba, &evt->bdaddr, FALSE);
+	else
+		hcid_dbus_set_legacy_pairing(sba, &evt->bdaddr, TRUE);
+
+	write_features_info(sba, &evt->bdaddr, NULL, evt->features);
+}
+
 static inline void cmd_status(int dev, bdaddr_t *sba, void *ptr)
 {
 	evt_cmd_status *evt = ptr;
@@ -683,7 +705,7 @@ static inline void cmd_complete(int dev, bdaddr_t *sba, void *ptr)
 		hcid_dbus_setscan_enable_complete(sba);
 		break;
 	case cmd_opcode_pack(OGF_HOST_CTL, OCF_WRITE_CLASS_OF_DEV):
-		hcid_dbus_write_class_complete(sba);
+		adapter_set_class_complete(sba, status);
 		break;
 	case cmd_opcode_pack(OGF_HOST_CTL, OCF_WRITE_SIMPLE_PAIRING_MODE):
 		hcid_dbus_write_simple_pairing_mode_complete(sba);
@@ -691,6 +713,10 @@ static inline void cmd_complete(int dev, bdaddr_t *sba, void *ptr)
 	case cmd_opcode_pack(OGF_HOST_CTL, OCF_READ_LOCAL_NAME):
 		ptr += sizeof(evt_cmd_complete);
 		adapter_update_local_name(sba, status, ptr);
+		break;
+	case cmd_opcode_pack(OGF_HOST_CTL, OCF_READ_INQ_RESPONSE_TX_POWER_LEVEL):
+		ptr += sizeof(evt_cmd_complete);
+		adapter_update_tx_power(sba, status, ptr);
 		break;
 	};
 }
@@ -751,7 +777,8 @@ static inline void inquiry_result(int dev, bdaddr_t *sba, int plen, void *ptr)
 	}
 }
 
-static inline void inquiry_result_with_rssi(int dev, bdaddr_t *sba, int plen, void *ptr)
+static inline void inquiry_result_with_rssi(int dev, bdaddr_t *sba,
+							int plen, void *ptr)
 {
 	uint8_t num = *(uint8_t *) ptr++;
 	int i;
@@ -790,7 +817,8 @@ static inline void inquiry_result_with_rssi(int dev, bdaddr_t *sba, int plen, vo
 	}
 }
 
-static inline void extended_inquiry_result(int dev, bdaddr_t *sba, int plen, void *ptr)
+static inline void extended_inquiry_result(int dev, bdaddr_t *sba,
+							int plen, void *ptr)
 {
 	uint8_t num = *(uint8_t *) ptr++;
 	int i;
@@ -810,7 +838,8 @@ static inline void extended_inquiry_result(int dev, bdaddr_t *sba, int plen, voi
 	}
 }
 
-static inline void remote_features_information(int dev, bdaddr_t *sba, void *ptr)
+static inline void remote_features_information(int dev, bdaddr_t *sba,
+								void *ptr)
 {
 	evt_read_remote_features_complete *evt = ptr;
 	bdaddr_t dba;
@@ -821,7 +850,7 @@ static inline void remote_features_information(int dev, bdaddr_t *sba, void *ptr
 	if (get_bdaddr(dev, sba, btohs(evt->handle), &dba) < 0)
 		return;
 
-	write_features_info(sba, &dba, evt->features);
+	write_features_info(sba, &dba, evt->features, NULL);
 }
 
 static inline void conn_complete(int dev, int dev_id, bdaddr_t *sba, void *ptr)
@@ -849,7 +878,8 @@ static inline void conn_complete(int dev, int dev_id, bdaddr_t *sba, void *ptr)
 	cp_name.pscan_rep_mode = 0x02;
 
 	data = hci_req_data_new(dev_id, &evt->bdaddr, OGF_LINK_CTL,
-				OCF_REMOTE_NAME_REQ, EVT_REMOTE_NAME_REQ_COMPLETE,
+				OCF_REMOTE_NAME_REQ,
+				EVT_REMOTE_NAME_REQ_COMPLETE,
 				&cp_name, REMOTE_NAME_REQ_CP_SIZE);
 
 	hci_req_queue_append(data);
@@ -858,7 +888,8 @@ static inline void conn_complete(int dev, int dev_id, bdaddr_t *sba, void *ptr)
 	ba2str(sba, local_addr);
 	ba2str(&evt->bdaddr, peer_addr);
 
-	create_name(filename, sizeof(filename), STORAGEDIR, local_addr, "manufacturers");
+	create_name(filename, sizeof(filename), STORAGEDIR, local_addr,
+							"manufacturers");
 
 	str = textfile_get(filename, peer_addr);
 	if (!str) {
@@ -868,7 +899,8 @@ static inline void conn_complete(int dev, int dev_id, bdaddr_t *sba, void *ptr)
 		cp.handle = evt->handle;
 
 		data = hci_req_data_new(dev_id, &evt->bdaddr, OGF_LINK_CTL,
-					OCF_READ_REMOTE_VERSION, EVT_READ_REMOTE_VERSION_COMPLETE,
+					OCF_READ_REMOTE_VERSION,
+					EVT_READ_REMOTE_VERSION_COMPLETE,
 					&cp, READ_REMOTE_VERSION_CP_SIZE);
 
 		hci_req_queue_append(data);
@@ -927,7 +959,8 @@ static void delete_channel(GIOChannel *chan)
 	error("IO channel not found in the io_data table");
 }
 
-static gboolean io_security_event(GIOChannel *chan, GIOCondition cond, gpointer data)
+static gboolean io_security_event(GIOChannel *chan, GIOCondition cond,
+								gpointer data)
 {
 	unsigned char buf[HCI_MAX_EVENT_SIZE], *ptr = buf;
 	struct hci_dev_info *di = data;
@@ -983,6 +1016,10 @@ static gboolean io_security_event(GIOChannel *chan, GIOCondition cond, gpointer 
 
 	case EVT_READ_REMOTE_FEATURES_COMPLETE:
 		remote_features_information(dev, &di->bdaddr, ptr);
+		break;
+
+	case EVT_REMOTE_HOST_FEATURES_NOTIFY:
+		remote_features_notify(dev, &di->bdaddr, ptr);
 		break;
 
 	case EVT_INQUIRY_COMPLETE:
@@ -1137,7 +1174,7 @@ void start_security_manager(int hdev)
 
 	chan = g_io_channel_unix_new(dev);
 	g_io_channel_set_close_on_unref(chan, TRUE);
-	io_data[hdev].watch_id = g_io_add_watch_full(chan, G_PRIORITY_HIGH,
+	io_data[hdev].watch_id = g_io_add_watch_full(chan, G_PRIORITY_LOW,
 						G_IO_IN | G_IO_NVAL | G_IO_HUP | G_IO_ERR,
 						io_security_event, di, (GDestroyNotify) g_free);
 	io_data[hdev].channel = chan;

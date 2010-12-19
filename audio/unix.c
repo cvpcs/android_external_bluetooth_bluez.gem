@@ -2,8 +2,8 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2006-2007  Nokia Corporation
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2006-2010  Nokia Corporation
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -39,7 +39,7 @@
 #include <dbus/dbus.h>
 #include <glib.h>
 
-#include "logging.h"
+#include "log.h"
 #include "ipc.h"
 #include "device.h"
 #include "manager.h"
@@ -97,7 +97,7 @@ static int unix_sock = -1;
 
 static void client_free(struct unix_client *client)
 {
-	debug("client_free(%p)", client);
+	DBG("client_free(%p)", client);
 
 	if (client->cancel && client->dev && client->req_id > 0)
 		client->cancel(client->dev, client->req_id);
@@ -147,7 +147,7 @@ static void unix_ipc_sendmsg(struct unix_client *client,
 	const char *type = bt_audio_strtype(msg->type);
 	const char *name = bt_audio_strname(msg->name);
 
-	debug("Audio API: %s -> %s", type, name);
+	DBG("Audio API: %s -> %s", type, name);
 
 	if (send(client->sock, msg, msg->length, 0) < 0)
 		error("Error %s(%d)", strerror(errno), errno);
@@ -168,6 +168,7 @@ static void unix_ipc_error(struct unix_client *client, uint8_t name, int err)
 
 	rsp->posix_errno = err;
 
+	DBG("sending error %s(%d)", strerror(err), err);
 	unix_ipc_sendmsg(client, &rsp->h);
 }
 
@@ -176,13 +177,20 @@ static service_type_t select_service(struct audio_device *dev, const char *inter
 	if (!interface) {
 		if (dev->sink && avdtp_is_connected(&dev->src, &dev->dst))
 			return TYPE_SINK;
+		else if (dev->source && avdtp_is_connected(&dev->src,
+								&dev->dst))
+			return TYPE_SOURCE;
 		else if (dev->headset && headset_is_active(dev))
 			return TYPE_HEADSET;
 		else if (dev->sink)
 			return TYPE_SINK;
+		else if (dev->source)
+			return TYPE_SOURCE;
 		else if (dev->headset)
 			return TYPE_HEADSET;
-	} else if (!strcmp(interface, AUDIO_SINK_INTERFACE) && dev->sink)
+	} else if (!strcmp(interface, AUDIO_SOURCE_INTERFACE) && dev->source)
+		return TYPE_SOURCE;
+	else if (!strcmp(interface, AUDIO_SINK_INTERFACE) && dev->sink)
 		return TYPE_SINK;
 	else if (!strcmp(interface, AUDIO_HEADSET_INTERFACE) && dev->headset)
 		return TYPE_HEADSET;
@@ -310,14 +318,14 @@ failed:
 	unix_ipc_error(client, BT_SET_CONFIGURATION, EIO);
 }
 
-static void gateway_setup_complete(struct audio_device *dev, void *user_data)
+static void gateway_setup_complete(struct audio_device *dev, GError *err, void *user_data)
 {
 	struct unix_client *client = user_data;
 	char buf[BT_SUGGESTED_BUFFER_SIZE];
 	struct bt_set_configuration_rsp *rsp = (void *) buf;
 
-	if (!dev) {
-		unix_ipc_error(client, BT_SET_CONFIGURATION, EIO);
+	if (err) {
+		unix_ipc_error(client, BT_SET_CONFIGURATION, err->code);
 		return;
 	}
 
@@ -380,12 +388,17 @@ failed:
 	unix_ipc_error(client, BT_START_STREAM, EIO);
 }
 
-static void gateway_resume_complete(struct audio_device *dev, void *user_data)
+static void gateway_resume_complete(struct audio_device *dev, GError *err, void *user_data)
 {
 	struct unix_client *client = user_data;
 	char buf[BT_SUGGESTED_BUFFER_SIZE];
 	struct bt_start_stream_rsp *rsp = (void *) buf;
 	struct bt_new_stream_ind *ind = (void *) buf;
+
+	if (err) {
+		unix_ipc_error(client, BT_START_STREAM, err->code);
+		return;
+	}
 
 	memset(buf, 0, sizeof(buf));
 	rsp->h.type = BT_RESPONSE;
@@ -435,7 +448,7 @@ failed:
 
 static void print_mpeg12(struct mpeg_codec_cap *mpeg)
 {
-	debug("Media Codec: MPEG12"
+	DBG("Media Codec: MPEG12"
 		" Channel Modes: %s%s%s%s"
 		" Frequencies: %s%s%s%s%s%s"
 		" Layers: %s%s%s"
@@ -460,7 +473,7 @@ static void print_mpeg12(struct mpeg_codec_cap *mpeg)
 
 static void print_sbc(struct sbc_codec_cap *sbc)
 {
-	debug("Media Codec: SBC"
+	DBG("Media Codec: SBC"
 		" Channel Modes: %s%s%s%s"
 		" Frequencies: %s%s%s%s"
 		" Subbands: %s%s"
@@ -487,6 +500,7 @@ static void print_sbc(struct sbc_codec_cap *sbc)
 static int a2dp_append_codec(struct bt_get_capabilities_rsp *rsp,
 				struct avdtp_service_capability *cap,
 				uint8_t seid,
+				uint8_t type,
 				uint8_t configured,
 				uint8_t lock)
 {
@@ -507,6 +521,13 @@ static int a2dp_append_codec(struct bt_get_capabilities_rsp *rsp,
 		if (space_left < sizeof(sbc_capabilities_t))
 			return -ENOMEM;
 
+		if (type == AVDTP_SEP_TYPE_SINK)
+			codec->type = BT_A2DP_SBC_SINK;
+		else if (type == AVDTP_SEP_TYPE_SOURCE)
+			codec->type = BT_A2DP_SBC_SOURCE;
+		else
+			return -EINVAL;
+
 		codec->length = sizeof(sbc_capabilities_t);
 
 		sbc->channel_mode = sbc_cap->channel_mode;
@@ -518,13 +539,19 @@ static int a2dp_append_codec(struct bt_get_capabilities_rsp *rsp,
 		sbc->max_bitpool = sbc_cap->max_bitpool;
 
 		print_sbc(sbc_cap);
-		codec->type = BT_A2DP_SBC_SINK;
 	} else if (codec_cap->media_codec_type == A2DP_CODEC_MPEG12) {
 		struct mpeg_codec_cap *mpeg_cap = (void *) codec_cap;
 		mpeg_capabilities_t *mpeg = (void *) codec;
 
 		if (space_left < sizeof(mpeg_capabilities_t))
 			return -ENOMEM;
+
+		if (type == AVDTP_SEP_TYPE_SINK)
+			codec->type = BT_A2DP_MPEG12_SINK;
+		else if (type == AVDTP_SEP_TYPE_SOURCE)
+			codec->type = BT_A2DP_MPEG12_SOURCE;
+		else
+			return -EINVAL;
 
 		codec->length = sizeof(mpeg_capabilities_t);
 
@@ -536,7 +563,6 @@ static int a2dp_append_codec(struct bt_get_capabilities_rsp *rsp,
 		mpeg->bitrate = mpeg_cap->bitrate;
 
 		print_mpeg12(mpeg_cap);
-		codec->type = BT_A2DP_MPEG12_SINK;
 	} else {
 		size_t codec_length, type_length, total_length;
 
@@ -549,11 +575,17 @@ static int a2dp_append_codec(struct bt_get_capabilities_rsp *rsp,
 		if (space_left < total_length)
 			return -ENOMEM;
 
+		if (type == AVDTP_SEP_TYPE_SINK)
+			codec->type = BT_A2DP_UNKNOWN_SINK;
+		else if (type == AVDTP_SEP_TYPE_SOURCE)
+			codec->type = BT_A2DP_UNKNOWN_SOURCE;
+		else
+			return -EINVAL;
+
 		codec->length = total_length;
 		memcpy(codec->data, &codec_cap->media_codec_type, type_length);
 		memcpy(codec->data + type_length, codec_cap->data,
 			codec_length);
-		codec->type = BT_A2DP_UNKNOWN_SINK;
 	}
 
 	codec->seid = seid;
@@ -561,7 +593,7 @@ static int a2dp_append_codec(struct bt_get_capabilities_rsp *rsp,
 	codec->lock = lock;
 	rsp->h.length += codec->length;
 
-	debug("Append %s seid %d - length %d - total %d",
+	DBG("Append %s seid %d - length %d - total %d",
 		configured ? "configured" : "", seid, codec->length,
 		rsp->h.length);
 
@@ -579,7 +611,7 @@ static void a2dp_discovery_complete(struct avdtp *session, GSList *seps,
 	GSList *l;
 
 	if (!g_slist_find(clients, client)) {
-		debug("Client disconnected during discovery");
+		DBG("Client disconnected during discovery");
 		return;
 	}
 
@@ -606,7 +638,8 @@ static void a2dp_discovery_complete(struct avdtp *session, GSList *seps,
 
 		type = avdtp_get_type(rsep);
 
-		if (type != AVDTP_SEP_TYPE_SINK)
+		if (type != AVDTP_SEP_TYPE_SINK &&
+						type != AVDTP_SEP_TYPE_SOURCE)
 			continue;
 
 		cap = avdtp_get_codec(rsep);
@@ -630,8 +663,7 @@ static void a2dp_discovery_complete(struct avdtp *session, GSList *seps,
 			struct unix_client *c = cl->data;
 			struct a2dp_data *ca2dp = &c->d.a2dp;
 
-			if (ca2dp && ca2dp->session == session &&
-					c->seid == seid) {
+			if (ca2dp->session == session && c->seid == seid) {
 				lock = c->lock;
 				break;
 			}
@@ -641,7 +673,7 @@ static void a2dp_discovery_complete(struct avdtp *session, GSList *seps,
 		if (sep && a2dp_sep_get_lock(sep))
 			lock = BT_WRITE_LOCK;
 
-		a2dp_append_codec(rsp, cap, seid, configured, lock);
+		a2dp_append_codec(rsp, cap, seid, type, configured, lock);
 	}
 
 	unix_ipc_sendmsg(client, &rsp->h);
@@ -819,6 +851,7 @@ static void start_discovery(struct audio_device *dev, struct unix_client *client
 
 	switch (client->type) {
 	case TYPE_SINK:
+	case TYPE_SOURCE:
 		a2dp = &client->d.a2dp;
 
 		if (!a2dp->session)
@@ -875,8 +908,6 @@ static void open_complete(struct audio_device *dev, void *user_data)
 	strncpy(rsp->object, dev->path, sizeof(rsp->object));
 
 	unix_ipc_sendmsg(client, &rsp->h);
-
-	return;
 }
 
 static void start_open(struct audio_device *dev, struct unix_client *client)
@@ -1254,6 +1285,7 @@ static void handle_getcapabilities_req(struct unix_client *client,
 	struct audio_device *dev;
 	bdaddr_t src, dst;
 	int err = EIO;
+	const char *interface;
 
 	if (!check_nul(req->source) || !check_nul(req->destination) ||
 			!check_nul(req->object)) {
@@ -1264,29 +1296,33 @@ static void handle_getcapabilities_req(struct unix_client *client,
 	str2ba(req->source, &src);
 	str2ba(req->destination, &dst);
 
-	if (req->transport == BT_CAPABILITIES_TRANSPORT_SCO)
-		client->interface = g_strdup(AUDIO_HEADSET_INTERFACE);
-	else if (req->transport == BT_CAPABILITIES_TRANSPORT_A2DP)
-		client->interface = g_strdup(AUDIO_SINK_INTERFACE);
-
 	if (!manager_find_device(req->object, &src, &dst, NULL, FALSE))
 		goto failed;
 
-	dev = manager_find_device(req->object, &src, &dst, client->interface,
-				TRUE);
+	if (req->transport == BT_CAPABILITIES_TRANSPORT_SCO)
+		interface = AUDIO_HEADSET_INTERFACE;
+	else if (req->transport == BT_CAPABILITIES_TRANSPORT_A2DP)
+		interface = AUDIO_SINK_INTERFACE;
+	else
+		interface = client->interface;
+
+	dev = manager_find_device(req->object, &src, &dst, interface, TRUE);
 	if (!dev && (req->flags & BT_FLAG_AUTOCONNECT))
 		dev = manager_find_device(req->object, &src, &dst,
-					client->interface, FALSE);
+							interface, FALSE);
 
-	if (!dev && req->transport == BT_CAPABILITIES_TRANSPORT_SCO) {
-		g_free(client->interface);
-		client->interface = g_strdup(AUDIO_GATEWAY_INTERFACE);
-
+	if (!dev) {
+		if (req->transport == BT_CAPABILITIES_TRANSPORT_SCO)
+			interface = AUDIO_GATEWAY_INTERFACE;
+		else if (req->transport == BT_CAPABILITIES_TRANSPORT_A2DP)
+			interface = AUDIO_SOURCE_INTERFACE;
+		else
+			interface = NULL;
 		dev = manager_find_device(req->object, &src, &dst,
-				client->interface, TRUE);
+							interface, TRUE);
 		if (!dev && (req->flags & BT_FLAG_AUTOCONNECT))
 			dev = manager_find_device(req->object, &src, &dst,
-					client->interface, FALSE);
+							interface, FALSE);
 	}
 
 	if (!dev) {
@@ -1294,10 +1330,15 @@ static void handle_getcapabilities_req(struct unix_client *client,
 		goto failed;
 	}
 
-	client->type = select_service(dev, client->interface);
+	client->type = select_service(dev, interface);
 	if (client->type == TYPE_NONE) {
 		error("No matching service found");
 		goto failed;
+	}
+
+	if (g_strcmp0(interface, client->interface) != 0) {
+		g_free(client->interface);
+		client->interface = g_strdup(interface);
 	}
 
 	client->seid = req->seid;
@@ -1318,7 +1359,7 @@ static int handle_sco_open(struct unix_client *client, struct bt_open_req *req)
 		!g_str_equal(client->interface, AUDIO_GATEWAY_INTERFACE))
 		return -EIO;
 
-	debug("open sco - object=%s source=%s destination=%s lock=%s%s",
+	DBG("open sco - object=%s source=%s destination=%s lock=%s%s",
 			strcmp(req->object, "") ? req->object : "ANY",
 			strcmp(req->source, "") ? req->source : "ANY",
 			strcmp(req->destination, "") ? req->destination : "ANY",
@@ -1331,11 +1372,13 @@ static int handle_sco_open(struct unix_client *client, struct bt_open_req *req)
 static int handle_a2dp_open(struct unix_client *client, struct bt_open_req *req)
 {
 	if (!client->interface)
+		/* FIXME: are we treating a sink or a source? */
 		client->interface = g_strdup(AUDIO_SINK_INTERFACE);
-	else if (!g_str_equal(client->interface, AUDIO_SINK_INTERFACE))
+	else if (!g_str_equal(client->interface, AUDIO_SINK_INTERFACE) &&
+			!g_str_equal(client->interface, AUDIO_SOURCE_INTERFACE))
 		return -EIO;
 
-	debug("open a2dp - object=%s source=%s destination=%s lock=%s%s",
+	DBG("open a2dp - object=%s source=%s destination=%s lock=%s%s",
 			strcmp(req->object, "") ? req->object : "ANY",
 			strcmp(req->source, "") ? req->source : "ANY",
 			strcmp(req->destination, "") ? req->destination : "ANY",
@@ -1424,8 +1467,10 @@ static int handle_a2dp_transport(struct unix_client *client,
 	struct mpeg_codec_cap mpeg_cap;
 
 	if (!client->interface)
+		/* FIXME: are we treating a sink or a source? */
 		client->interface = g_strdup(AUDIO_SINK_INTERFACE);
-	else if (!g_str_equal(client->interface, AUDIO_SINK_INTERFACE))
+	else if (!g_str_equal(client->interface, AUDIO_SINK_INTERFACE) &&
+			!g_str_equal(client->interface, AUDIO_SOURCE_INTERFACE))
 		return -EIO;
 
 	if (client->caps) {
@@ -1439,7 +1484,8 @@ static int handle_a2dp_transport(struct unix_client *client,
 
 	client->caps = g_slist_append(client->caps, media_transport);
 
-	if (req->codec.type == BT_A2DP_MPEG12_SINK) {
+	if (req->codec.type == BT_A2DP_MPEG12_SINK ||
+		req->codec.type == BT_A2DP_MPEG12_SOURCE) {
 		mpeg_capabilities_t *mpeg = (void *) &req->codec;
 
 		memset(&mpeg_cap, 0, sizeof(mpeg_cap));
@@ -1457,7 +1503,8 @@ static int handle_a2dp_transport(struct unix_client *client,
 							sizeof(mpeg_cap));
 
 		print_mpeg12(&mpeg_cap);
-	} else if (req->codec.type == BT_A2DP_SBC_SINK) {
+	} else if (req->codec.type == BT_A2DP_SBC_SINK ||
+			req->codec.type == BT_A2DP_SBC_SOURCE) {
 		sbc_capabilities_t *sbc = (void *) &req->codec;
 
 		memset(&sbc_cap, 0, sizeof(sbc_cap));
@@ -1491,7 +1538,7 @@ static void handle_setconfiguration_req(struct unix_client *client,
 
 	if (req->codec.seid != client->seid) {
 		error("Unable to set configuration: seid %d not opened",
-				client->seid);
+				req->codec.seid);
 		goto failed;
 	}
 
@@ -1577,6 +1624,56 @@ static void handle_control_req(struct unix_client *client,
 	unix_ipc_sendmsg(client, &rsp->h);
 }
 
+static void handle_delay_report_req(struct unix_client *client,
+					struct bt_delay_report_req *req)
+{
+	char buf[BT_SUGGESTED_BUFFER_SIZE];
+	struct bt_set_configuration_rsp *rsp = (void *) buf;
+	struct a2dp_data *a2dp;
+	int err;
+
+	if (!client->dev) {
+		err = -ENODEV;
+		goto failed;
+	}
+
+	switch (client->type) {
+	case TYPE_HEADSET:
+        case TYPE_GATEWAY:
+		err = -EINVAL;
+		goto failed;
+	case TYPE_SOURCE:
+	case TYPE_SINK:
+		a2dp = &client->d.a2dp;
+		if (a2dp->session && a2dp->stream) {
+			err = avdtp_delay_report(a2dp->session, a2dp->stream,
+								req->delay);
+			if (err < 0)
+				goto failed;
+		} else {
+			err = -EINVAL;
+			goto failed;
+		}
+		break;
+	default:
+		error("No known services for device");
+		err = -EINVAL;
+		goto failed;
+	}
+
+	memset(buf, 0, sizeof(buf));
+	rsp->h.type = BT_RESPONSE;
+	rsp->h.name = BT_DELAY_REPORT;
+	rsp->h.length = sizeof(*rsp);
+
+	unix_ipc_sendmsg(client, &rsp->h);
+
+	return;
+
+failed:
+	unix_ipc_error(client, BT_DELAY_REPORT, -err);
+}
+
 static gboolean client_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 {
 	char buf[BT_SUGGESTED_BUFFER_SIZE];
@@ -1589,7 +1686,7 @@ static gboolean client_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 		return FALSE;
 
 	if (cond & (G_IO_HUP | G_IO_ERR)) {
-		debug("Unix client disconnected (fd=%d)", client->sock);
+		DBG("Unix client disconnected (fd=%d)", client->sock);
 
 		goto failed;
 	}
@@ -1605,7 +1702,7 @@ static gboolean client_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 	type = bt_audio_strtype(msghdr->type);
 	name = bt_audio_strname(msghdr->name);
 
-	debug("Audio API: %s <- %s", type, name);
+	DBG("Audio API: %s <- %s", type, name);
 
 	if (msghdr->length != len) {
 		error("Invalid message: length mismatch");
@@ -1640,6 +1737,10 @@ static gboolean client_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 	case BT_CONTROL:
 		handle_control_req(client,
 				(struct bt_control_req *) msghdr);
+		break;
+	case BT_DELAY_REPORT:
+		handle_delay_report_req(client,
+				(struct bt_delay_report_req *) msghdr);
 		break;
 	default:
 		error("Audio API: received unexpected message name %d",
@@ -1682,7 +1783,7 @@ static gboolean server_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 		return TRUE;
 	}
 
-	debug("Accepted new client connection on unix socket (fd=%d)", cli_sk);
+	DBG("Accepted new client connection on unix socket (fd=%d)", cli_sk);
 	set_nonblocking(cli_sk);
 
 	client = g_new0(struct unix_client, 1);
@@ -1701,7 +1802,7 @@ void unix_device_removed(struct audio_device *dev)
 {
 	GSList *l;
 
-	debug("unix_device_removed(%p)", dev);
+	DBG("unix_device_removed(%p)", dev);
 
 	l = clients;
 	while (l) {
@@ -1714,6 +1815,29 @@ void unix_device_removed(struct audio_device *dev)
 			start_close(client->dev, client, FALSE);
 			client_free(client);
 		}
+	}
+}
+
+void unix_delay_report(struct audio_device *dev, uint8_t seid, uint16_t delay)
+{
+	GSList *l;
+	struct bt_delay_report_ind ind;
+
+	DBG("unix_delay_report(%p): %u.%ums", dev, delay / 10, delay % 10);
+
+	memset(&ind, 0, sizeof(ind));
+	ind.h.type = BT_INDICATION;
+	ind.h.name = BT_DELAY_REPORT;
+	ind.h.length = sizeof(ind);
+	ind.delay = delay;
+
+	for (l = clients; l != NULL; l = g_slist_next(l)) {
+		struct unix_client *client = l->data;
+
+		if (client->dev != dev || client->seid != seid)
+			continue;
+
+		unix_ipc_sendmsg(client, (void *) &ind);
 	}
 }
 
@@ -1756,7 +1880,7 @@ int unix_init(void)
 							server_cb, NULL);
 	g_io_channel_unref(io);
 
-	debug("Unix socket created: %d", sk);
+	DBG("Unix socket created: %d", sk);
 
 	return 0;
 }

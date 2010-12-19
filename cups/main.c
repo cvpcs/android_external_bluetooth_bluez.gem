@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2003-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2003-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -185,6 +185,27 @@ static char *device_get_ieee1284_id(const char *adapter, const char *device)
 	return id;
 }
 
+static void print_printer_details(const char *name, const char *bdaddr, const char *id)
+{
+	char *uri, *escaped;
+
+	escaped = g_strdelimit(g_strdup(name), "\"", '\'');
+	uri = g_strdup_printf("bluetooth://%c%c%c%c%c%c%c%c%c%c%c%c",
+		 bdaddr[0], bdaddr[1],
+		 bdaddr[3], bdaddr[4],
+		 bdaddr[6], bdaddr[7],
+		 bdaddr[9], bdaddr[10],
+		 bdaddr[12], bdaddr[13],
+		 bdaddr[15], bdaddr[16]);
+	printf("direct %s \"%s\" \"%s (Bluetooth)\"", uri, escaped, escaped);
+	if (id != NULL)
+		printf(" \"%s\"\n", id);
+	else
+		printf("\n");
+	g_free(escaped);
+	g_free(uri);
+}
+
 static void add_device_to_list(const char *name, const char *bdaddr, const char *id)
 {
 	struct cups_device *device;
@@ -212,27 +233,7 @@ static void add_device_to_list(const char *name, const char *bdaddr, const char 
 	device->id = g_strdup(id);
 
 	device_list = g_slist_prepend(device_list, device);
-}
-
-static void print_printer_details(const char *name, const char *bdaddr, const char *id)
-{
-	char *uri, *escaped;
-
-	escaped = g_strdelimit(g_strdup(name), "\"", '\'');
-	uri = g_strdup_printf("bluetooth://%c%c%c%c%c%c%c%c%c%c%c%c",
-		 bdaddr[0], bdaddr[1],
-		 bdaddr[3], bdaddr[4],
-		 bdaddr[6], bdaddr[7],
-		 bdaddr[9], bdaddr[10],
-		 bdaddr[12], bdaddr[13],
-		 bdaddr[15], bdaddr[16]);
-	printf("network %s \"Unknown\" \"%s (Bluetooth)\"", uri, escaped);
-	if (id != NULL)
-		printf(" \"%s\"\n", id);
-	else
-		printf("\n");
-	g_free(escaped);
-	g_free(uri);
+	print_printer_details(device->name, device->bdaddr, device->id);
 }
 
 static gboolean parse_device_properties(DBusMessageIter *reply_iter, char **name, char **bdaddr)
@@ -371,9 +372,10 @@ static void remote_device_found(const char *adapter, const char *bdaddr, const c
 
 		if (!reply)
 			return;
-	} else {
-		if (dbus_message_get_args(reply, NULL, DBUS_TYPE_OBJECT_PATH, &object_path, DBUS_TYPE_INVALID) == FALSE)
-			return;
+	}
+	if (dbus_message_get_args(reply, NULL, DBUS_TYPE_OBJECT_PATH, &object_path,
+				  DBUS_TYPE_INVALID) == FALSE) {
+		return;
 	}
 
 	id = device_get_ieee1284_id(adapter, object_path);
@@ -383,23 +385,6 @@ static void remote_device_found(const char *adapter, const char *bdaddr, const c
 
 static void discovery_completed(void)
 {
-	GSList *l;
-
-	for (l = device_list; l != NULL; l = l->next) {
-		struct cups_device *device = (struct cups_device *) l->data;
-
-		if (device->name == NULL)
-			device->name = g_strdelimit(g_strdup(device->bdaddr), ":", '-');
-		/* Give another try to getting an ID for the device */
-		if (device->id == NULL)
-			remote_device_found(NULL, device->bdaddr, device->name);
-		print_printer_details(device->name, device->bdaddr, device->id);
-		g_free(device->name);
-		g_free(device->bdaddr);
-		g_free(device->id);
-		g_free(device);
-	}
-
 	g_slist_free(device_list);
 	device_list = NULL;
 
@@ -441,7 +426,7 @@ static gboolean list_known_printers(const char *adapter)
 
 	dbus_message_unref(message);
 
-	if (&error != NULL && dbus_error_is_set(&error))
+	if (dbus_error_is_set(&error))
 		return FALSE;
 
 	dbus_message_iter_init(reply, &reply_iter);
@@ -506,6 +491,8 @@ static DBusHandlerResult filter_func(DBusConnection *connection, DBusMessage *me
 
 		dbus_message_iter_init(message, &iter);
 		dbus_message_iter_get_basic(&iter, &name);
+		if (name == NULL || strcmp(name, "Discovering") != 0)
+			return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 		dbus_message_iter_next(&iter);
 		dbus_message_iter_recurse(&iter, &value_iter);
 		dbus_message_iter_get_basic(&value_iter, &discovering);
@@ -540,7 +527,7 @@ static gboolean list_printers(void)
 
 	dbus_error_init(&error);
 	hcid_exists = dbus_bus_name_has_owner(conn, "org.bluez", &error);
-	if (&error != NULL && dbus_error_is_set(&error))
+	if (dbus_error_is_set(&error))
 		return TRUE;
 
 	if (!hcid_exists)
@@ -560,7 +547,7 @@ static gboolean list_printers(void)
 
 	dbus_message_unref(message);
 
-	if (&error != NULL && dbus_error_is_set(&error)) {
+	if (dbus_error_is_set(&error)) {
 		dbus_connection_unref(conn);
 		/* No adapter */
 		return TRUE;
@@ -612,6 +599,7 @@ static gboolean list_printers(void)
 	loop = g_main_loop_new(NULL, TRUE);
 	g_main_loop_run(loop);
 
+	g_free(adapter);
 	dbus_connection_unref(conn);
 
 	return TRUE;
@@ -634,6 +622,9 @@ int main(int argc, char *argv[])
 
 	/* Make sure status messages are not buffered */
 	setbuf(stderr, NULL);
+
+	/* Make sure output is not buffered */
+	setbuf(stdout, NULL);
 
 	/* Ignore SIGPIPE signals */
 #ifdef HAVE_SIGSET

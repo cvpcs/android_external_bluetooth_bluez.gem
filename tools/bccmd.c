@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -984,7 +984,7 @@ static int cmd_psread(int transport, int argc, char *argv[])
 			str = NULL;
 		}
 
-		printf("// %s%s\n&%04x =", str ? "PSKEY_" : "", 
+		printf("// %s%s\n&%04x =", str ? "PSKEY_" : "",
 						str ? str : val, pskey);
 		for (i = 0; i < length; i++)
 			printf(" %02x%02x", array[(i * 2) + 7], array[(i * 2) + 6]);

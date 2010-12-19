@@ -4,7 +4,7 @@
  *
  *  Copyright (C) 2000-2001  Qualcomm Incorporated
  *  Copyright (C) 2002-2003  Maxim Krasnyansky <maxk@qualcomm.com>
- *  Copyright (C) 2002-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2002-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -111,6 +111,7 @@ static int conn_list(int s, int dev_id, long arg)
 		bt_free(str);
 	}
 
+	free(cl);
 	return 0;
 }
 
@@ -134,9 +135,12 @@ static int find_conn(int s, int dev_id, long arg)
 	}
 
 	for (i = 0; i < cl->conn_num; i++, ci++)
-		if (!bacmp((bdaddr_t *) arg, &ci->bdaddr))
+		if (!bacmp((bdaddr_t *) arg, &ci->bdaddr)) {
+			free(cl);
 			return 1;
+		}
 
+	free(cl);
 	return 0;
 }
 
@@ -505,7 +509,6 @@ static void cmd_scan(int dev_id, int argc, char **argv)
 	uint8_t lap[3] = { 0x33, 0x8b, 0x9e };
 	int num_rsp, length, flags;
 	uint8_t cls[3], features[8];
-	uint16_t handle;
 	char addr[18], name[249], oui[9], *comp, *tmp;
 	struct hci_version version;
 	struct hci_dev_info di;
@@ -605,6 +608,8 @@ static void cmd_scan(int dev_id, int argc, char **argv)
 		printf("\n");
 
 	for (i = 0; i < num_rsp; i++) {
+		uint16_t handle = 0;
+
 		if (!refresh) {
 			memset(name, 0, sizeof(name));
 			tmp = get_device_name(&di.bdaddr, &(info+i)->bdaddr);
@@ -2349,6 +2354,240 @@ static void cmd_clock(int dev_id, int argc, char **argv)
 	hci_close_dev(dd);
 }
 
+static int print_advertising_devices(int dd)
+{
+	unsigned char buf[HCI_MAX_EVENT_SIZE], *ptr;
+	struct hci_filter nf, of;
+	socklen_t olen;
+	hci_event_hdr *hdr;
+	int num, len;
+
+	olen = sizeof(of);
+	if (getsockopt(dd, SOL_HCI, HCI_FILTER, &of, &olen) < 0) {
+		printf("Could not get socket options\n");
+		return -1;
+	}
+
+	hci_filter_clear(&nf);
+	hci_filter_set_ptype(HCI_EVENT_PKT, &nf);
+	hci_filter_set_event(EVT_LE_META_EVENT, &nf);
+
+	if (setsockopt(dd, SOL_HCI, HCI_FILTER, &nf, sizeof(nf)) < 0) {
+		printf("Could not set socket options\n");
+		return -1;
+	}
+
+	/* Wait for 10 report events */
+	num = 10;
+	while (num--) {
+		evt_le_meta_event *meta;
+		le_advertising_info *info;
+		char addr[18];
+
+		while ((len = read(dd, buf, sizeof(buf))) < 0) {
+			if (errno == EAGAIN || errno == EINTR)
+				continue;
+			goto done;
+		}
+
+		hdr = (void *) (buf + 1);
+		ptr = buf + (1 + HCI_EVENT_HDR_SIZE);
+		len -= (1 + HCI_EVENT_HDR_SIZE);
+
+		meta = (void *) ptr;
+
+		if (meta->subevent != 0x02)
+			goto done;
+
+		/* Ignoring multiple reports */
+		info = (le_advertising_info *) (meta->data + 1);
+		ba2str(&info->bdaddr, addr);
+		printf("%s\n", addr);
+	}
+
+done:
+	setsockopt(dd, SOL_HCI, HCI_FILTER, &of, sizeof(of));
+
+	if (len < 0)
+		return -1;
+
+	return 0;
+}
+
+static struct option lescan_options[] = {
+	{ "help",	0, 0, 'h' },
+	{ 0, 0, 0, 0 }
+};
+
+static const char *lescan_help =
+	"Usage:\n"
+	"\tlescan\n";
+
+static void cmd_lescan(int dev_id, int argc, char **argv)
+{
+	int err, opt, dd;
+
+	for_each_opt(opt, lescan_options, NULL) {
+		switch (opt) {
+		default:
+			printf("%s", lescan_help);
+			return;
+		}
+	}
+
+	dd = hci_open_dev(dev_id);
+	if (dd < 0) {
+		perror("Could not open device");
+		exit(1);
+	}
+
+	err = hci_le_set_scan_parameters(dd, 0x01, htobs(0x0010), htobs(0x0010),
+								0x00, 0x00);
+	if (err < 0) {
+		perror("Set scan parameters failed");
+		exit(1);
+	}
+
+	err = hci_le_set_scan_enable(dd, 0x01, 0x00);
+	if (err < 0) {
+		perror("Enable scan failed");
+		exit(1);
+	}
+
+	printf("LE Scan ...\n");
+
+	err = print_advertising_devices(dd);
+	if (err < 0) {
+		perror("Could not receive advertising events");
+		exit(1);
+	}
+
+	err = hci_le_set_scan_enable(dd, 0x00, 0x00);
+	if (err < 0) {
+		perror("Disable scan failed");
+		exit(1);
+	}
+
+	hci_close_dev(dd);
+}
+
+static struct option lecc_options[] = {
+	{ "help",	0, 0, 'h' },
+	{ 0, 0, 0, 0 }
+};
+
+static const char *lecc_help =
+	"Usage:\n"
+	"\tlecc <bdaddr>\n";
+
+static void cmd_lecc(int dev_id, int argc, char **argv)
+{
+	int err, opt, dd;
+	bdaddr_t bdaddr;
+	uint16_t interval, latency, max_ce_length, max_interval, min_ce_length;
+	uint16_t min_interval, supervision_timeout, window, handle;
+	uint8_t initiator_filter, own_bdaddr_type, peer_bdaddr_type;
+
+	for_each_opt(opt, lecc_options, NULL) {
+		switch (opt) {
+		default:
+			printf("%s", lecc_help);
+			return;
+		}
+	}
+
+	argc -= optind;
+	argv += optind;
+
+	if (argc < 1) {
+		printf("%s", lecc_help);
+		return;
+	}
+
+	dd = hci_open_dev(dev_id);
+	if (dd < 0) {
+		perror("Could not open device");
+		exit(1);
+	}
+
+	str2ba(argv[0], &bdaddr);
+
+	interval = htobs(0x0004);
+	window = htobs(0x0004);
+	initiator_filter = 0x00;
+	peer_bdaddr_type = 0x00;
+	own_bdaddr_type = 0x00;
+	min_interval = htobs(0x000F);
+	max_interval = htobs(0x000F);
+	latency = htobs(0x0000);
+	supervision_timeout = htobs(0x0C80);
+	min_ce_length = htobs(0x0001);
+	max_ce_length = htobs(0x0001);
+
+	err = hci_le_create_conn(dd, interval, window, initiator_filter,
+			peer_bdaddr_type, bdaddr, own_bdaddr_type, min_interval,
+			max_interval, latency, supervision_timeout,
+			min_ce_length, max_ce_length, &handle, 25000);
+	if (err < 0) {
+		perror("Could not create connection");
+		exit(1);
+	}
+
+	printf("Connection handle %d\n", handle);
+
+	hci_close_dev(dd);
+}
+
+static struct option ledc_options[] = {
+	{ "help",	0, 0, 'h' },
+	{ 0, 0, 0, 0 }
+};
+
+static const char *ledc_help =
+	"Usage:\n"
+	"\tledc <handle> [reason]\n";
+
+static void cmd_ledc(int dev_id, int argc, char **argv)
+{
+	int err, opt, dd;
+	uint16_t handle;
+	uint8_t reason;
+
+	for_each_opt(opt, ledc_options, NULL) {
+		switch (opt) {
+		default:
+			printf("%s", ledc_help);
+			return;
+		}
+	}
+
+	argc -= optind;
+	argv += optind;
+
+	if (argc < 1) {
+		printf("%s", ledc_help);
+		return;
+	}
+
+	dd = hci_open_dev(dev_id);
+	if (dd < 0) {
+		perror("Could not open device");
+		exit(1);
+	}
+
+	handle = atoi(argv[0]);
+
+	reason = (argc > 1) ? atoi(argv[1]) : HCI_OE_USER_ENDED_CONNECTION;
+
+	err = hci_disconnect(dd, handle, reason, 10000);
+	if (err < 0) {
+		perror("Could not disconnect");
+		exit(1);
+	}
+
+	hci_close_dev(dd);
+}
+
 static struct {
 	char *cmd;
 	void (*func)(int dev_id, int argc, char **argv);
@@ -2378,6 +2617,9 @@ static struct {
 	{ "key",    cmd_key,    "Change connection link key"           },
 	{ "clkoff", cmd_clkoff, "Read clock offset"                    },
 	{ "clock",  cmd_clock,  "Read local or remote clock"           },
+	{ "lescan", cmd_lescan, "Start LE scan"                        },
+	{ "lecc",   cmd_lecc,   "Create a LE Connection",              },
+	{ "ledc",   cmd_ledc,   "Disconnect a LE Connection",          },
 	{ NULL, NULL, 0 }
 };
 

@@ -3,7 +3,7 @@
  *  BlueZ - Bluetooth protocol stack for Linux
  *
  *  Copyright (C) 2002-2003  Maxim Krasnyansky <maxk@qualcomm.com>
- *  Copyright (C) 2002-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2002-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -93,7 +93,7 @@ int bnep_init(void)
 	}
 
 	/* Temporary ioctl compatibility hack */
-	{ 
+	{
 		struct bnep_connlist_req req;
 		struct bnep_conninfo ci[1];
 
@@ -194,19 +194,19 @@ static int bnep_connadd(int sk, uint16_t role, char *dev)
 	return 0;
 }
 
-struct __service_16 { 
+struct __service_16 {
 	uint16_t dst;
 	uint16_t src;
 } __attribute__ ((packed));
 
-struct __service_32 { 
+struct __service_32 {
 	uint16_t unused1;
 	uint16_t dst;
 	uint16_t unused2;
 	uint16_t src;
 } __attribute__ ((packed));
 
-struct __service_128 { 
+struct __service_128 {
 	uint16_t unused1;
 	uint16_t dst;
 	uint16_t unused2[8];
@@ -246,7 +246,7 @@ int bnep_accept_connection(int sk, uint16_t role, char *dev)
 	return bnep_connadd(sk, role, dev);
 }
 
-/* Create BNEP connection 
+/* Create BNEP connection
  * sk      - Connect L2CAP socket
  * role    - Local role
  * service - Remote service

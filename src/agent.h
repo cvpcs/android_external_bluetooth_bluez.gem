@@ -2,8 +2,8 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2006-2008  Nokia Corporation
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2006-2010  Nokia Corporation
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -33,13 +33,18 @@ typedef void (*agent_pincode_cb) (struct agent *agent, DBusError *err,
 typedef void (*agent_passkey_cb) (struct agent *agent, DBusError *err,
 					uint32_t passkey, void *user_data);
 
+typedef void (*agent_oob_data_cb) (struct agent *agent, DBusError *err,
+					uint8_t *hash, uint8_t *randomizer,
+					void *user_data);
+
 typedef void (*agent_remove_cb) (struct agent *agent, void *user_data);
 
 struct agent *agent_create(struct btd_adapter *adapter, const char *name,
 				const char *path, uint8_t capability,
-				agent_remove_cb cb, void *remove_cb_data);
+				gboolean oob, agent_remove_cb cb,
+				void *remove_cb_data);
 
-int agent_destroy(struct agent *agent, gboolean exited);
+void agent_free(struct agent *agent);
 
 int agent_authorize(struct agent *agent, const char *path,
 			const char *uuid, agent_cb cb, void *user_data,
@@ -57,6 +62,14 @@ int agent_request_passkey(struct agent *agent, struct btd_device *device,
 				agent_passkey_cb cb, void *user_data,
 				GDestroyNotify destroy);
 
+int agent_request_oob_data(struct agent *agent, struct btd_device *device,
+				agent_oob_data_cb cb, void *user_data,
+				GDestroyNotify destroy);
+
+int agent_request_oob_availability(struct agent *agent,
+                                        const char *path, agent_cb cb,
+                                        void *user_data, GDestroyNotify destroy);
+
 int agent_request_confirmation(struct agent *agent, struct btd_device *device,
 				uint32_t passkey, agent_cb cb,
 				void *user_data, GDestroyNotify destroy);
@@ -69,6 +82,7 @@ int agent_cancel(struct agent *agent);
 gboolean agent_is_busy(struct agent *agent, void *user_data);
 
 uint8_t agent_get_io_capability(struct agent *agent);
+gboolean agent_get_oob_capability(struct agent *agent);
 
 gboolean agent_matches(struct agent *agent, const char *name, const char *path);
 

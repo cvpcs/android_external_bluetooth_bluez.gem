@@ -3,7 +3,7 @@
  *  BlueZ - Bluetooth protocol stack for Linux
  *
  *  Copyright (C) 2002-2003  Maxim Krasnyansky <maxk@qualcomm.com>
- *  Copyright (C) 2002-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2002-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -86,6 +86,7 @@ static int for_each_port(int (*func)(struct rfcomm_dev_info *, unsigned long), u
 	}
 
 	close(sk);
+	free(dl);
 	return r;
 }
 
@@ -106,8 +107,10 @@ static int uses_rfcomm(char *path, char *dev)
 		int  len = readlink(de->d_name, link, sizeof(link));
 		if (len > 0) {
 			link[len] = 0;
-			if (strstr(link, dev))
+			if (strstr(link, dev)) {
+				closedir(dir);
 				return 1;
+			}
 		}
 	}
 
@@ -155,7 +158,7 @@ static int dun_exec(char *tty, char *prog, char **args)
 {
 	int pid = fork();
 	int fd;
-	
+
 	switch (pid) {
 	case -1:
 		return -1;
@@ -241,7 +244,7 @@ int dun_cleanup(void)
 static int show_conn(struct rfcomm_dev_info *di, unsigned long arg)
 {
 	pid_t pid;
-	
+
 	if (di->state == BT_CONNECTED &&
 		(di->flags & (1<<RFCOMM_REUSE_DLC)) &&
 		(di->flags & (1<<RFCOMM_TTY_ATTACHED)) &&

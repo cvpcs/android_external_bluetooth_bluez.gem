@@ -25,34 +25,6 @@ AC_DEFUN([COMPILER_FLAGS], [
 	fi
 ])
 
-AC_DEFUN([GTK_DOC_CHECK], [
-	AC_ARG_WITH([html-dir],
-		AS_HELP_STRING([--with-html-dir=PATH], [path to installed docs]),,
-					[with_html_dir='${datadir}/gtk-doc/html'])
-	HTML_DIR="$with_html_dir"
-	AC_SUBST([HTML_DIR])
-
-	AC_ARG_ENABLE([gtk-doc],
-		AS_HELP_STRING([--enable-gtk-doc], [use gtk-doc to build documentation [[default=no]]]),,
-					[enable_gtk_doc=no])
-
-	if test x$enable_gtk_doc = xyes; then
-		ifelse([$1],[],
-			[PKG_CHECK_EXISTS([gtk-doc],,
-				AC_MSG_ERROR([gtk-doc not installed and --enable-gtk-doc requested]))],
-			[PKG_CHECK_EXISTS([gtk-doc >= $1],,
-				AC_MSG_ERROR([You need to have gtk-doc >= $1 installed to build gtk-doc]))])
-	fi
-
-	AC_MSG_CHECKING([whether to build gtk-doc documentation])
-	AC_MSG_RESULT($enable_gtk_doc)
-
-	AC_PATH_PROGS(GTKDOC_CHECK,gtkdoc-check,)
-
-	AM_CONDITIONAL([ENABLE_GTK_DOC], [test x$enable_gtk_doc = xyes])
-	AM_CONDITIONAL([GTK_DOC_USE_LIBTOOL], [test -n "$LIBTOOL"])
-])
-
 AC_DEFUN([AC_FUNC_PPOLL], [
 	AC_CHECK_FUNC(ppoll, dummy=yes, AC_DEFINE(NEED_PPOLL, 1,
 			[Define to 1 if you need the ppoll() function.]))
@@ -126,6 +98,10 @@ AC_DEFUN([AC_PATH_DBUS], [
 	AC_CHECK_LIB(dbus-1, dbus_watch_get_unix_fd, dummy=yes,
 		AC_DEFINE(NEED_DBUS_WATCH_GET_UNIX_FD, 1,
 			[Define to 1 if you need the dbus_watch_get_unix_fd() function.]))
+	AC_CHECK_LIB(dbus-1, dbus_connection_can_send_type, dummy=yes,
+		AC_DEFINE(NEED_DBUS_CONNECTION_CAN_SEND_TYPE, 1,
+			[Define to 1 if you need the dbus_connection_can_send_type() function.]
+))
 	AC_SUBST(DBUS_CFLAGS)
 	AC_SUBST(DBUS_LIBS)
 ])
@@ -170,12 +146,6 @@ AC_DEFUN([AC_PATH_USB], [
 			[Define to 1 if you need the usb_interrupt_read() function.]))
 ])
 
-AC_DEFUN([AC_PATH_NETLINK], [
-	PKG_CHECK_MODULES(NETLINK, libnl-1, netlink_found=yes, netlink_found=no)
-	AC_SUBST(NETLINK_CFLAGS)
-	AC_SUBST(NETLINK_LIBS)
-])
-
 AC_DEFUN([AC_PATH_SNDFILE], [
 	PKG_CHECK_MODULES(SNDFILE, sndfile, sndfile_found=yes, sndfile_found=no)
 	AC_SUBST(SNDFILE_CFLAGS)
@@ -188,7 +158,6 @@ AC_DEFUN([AC_ARG_BLUEZ], [
 	fortify_enable=yes
 	pie_enable=yes
 	sndfile_enable=${sndfile_found}
-	netlink_enable=no
 	hal_enable=${hal_found}
 	usb_enable=${usb_found}
 	alsa_enable=${alsa_found}
@@ -198,6 +167,8 @@ AC_DEFUN([AC_ARG_BLUEZ], [
 	serial_enable=yes
 	network_enable=yes
 	service_enable=yes
+	pnat_enable=no
+	tracer_enable=no
 	tools_enable=yes
 	hidd_enable=no
 	pand_enable=no
@@ -208,10 +179,10 @@ AC_DEFUN([AC_ARG_BLUEZ], [
 	pcmcia_enable=no
 	hid2hci_enable=no
 	dfutool_enable=no
-	manpages_enable=yes
 	udevrules_enable=yes
 	configfiles_enable=yes
 	telephony_driver=dummy
+	maemo6_enable=no
 
 	AC_ARG_ENABLE(optimization, AC_HELP_STRING([--disable-optimization], [disable code optimization]), [
 		optimization_enable=${enableval}
@@ -245,6 +216,10 @@ AC_DEFUN([AC_ARG_BLUEZ], [
 		service_enable=${enableval}
 	])
 
+	AC_ARG_ENABLE(pnat, AC_HELP_STRING([--enable-pnat], [enable pnat plugin]), [
+		pnat_enable=${enableval}
+	])
+
 	AC_ARG_ENABLE(gstreamer, AC_HELP_STRING([--enable-gstreamer], [enable GStreamer support]), [
 		gstreamer_enable=${enableval}
 	])
@@ -257,8 +232,8 @@ AC_DEFUN([AC_ARG_BLUEZ], [
 		usb_enable=${enableval}
 	])
 
-	AC_ARG_ENABLE(netlink, AC_HELP_STRING([--enable-netlink], [enable NETLINK support]), [
-		netlink_enable=${enableval}
+	AC_ARG_ENABLE(tracer, AC_HELP_STRING([--enable-tracer], [install Tracing daemon]), [
+		tracer_enable=${enableval}
 	])
 
 	AC_ARG_ENABLE(tools, AC_HELP_STRING([--enable-tools], [install Bluetooth utilities]), [
@@ -301,10 +276,6 @@ AC_DEFUN([AC_ARG_BLUEZ], [
 		test_enable=${enableval}
 	])
 
-	AC_ARG_ENABLE(manpages, AC_HELP_STRING([--enable-manpages], [install Bluetooth manual pages]), [
-		manpages_enable=${enableval}
-	])
-
 	AC_ARG_ENABLE(udevrules, AC_HELP_STRING([--enable-udevrules], [install Bluetooth udev rules]), [
 		udevrules_enable=${enableval}
 	])
@@ -322,6 +293,10 @@ AC_DEFUN([AC_ARG_BLUEZ], [
 	])
 
 	AC_SUBST([TELEPHONY_DRIVER], [telephony-${telephony_driver}.c])
+
+	AC_ARG_ENABLE(maemo6, AC_HELP_STRING([--enable-maemo6], [compile with maemo6 plugin]), [
+		maemo6_enable=${enableval}
+	])
 
 	if (test "${fortify_enable}" = "yes"); then
 		CFLAGS="$CFLAGS -D_FORTIFY_SOURCE=2"
@@ -344,19 +319,10 @@ AC_DEFUN([AC_ARG_BLUEZ], [
 		AC_DEFINE(HAVE_LIBUSB, 1, [Define to 1 if you have USB library.])
 	fi
 
-	AC_SUBST([BLUEZ_CFLAGS], ['-I$(top_builddir)/include'])
-	AC_SUBST([BLUEZ_LIBS], ['$(top_builddir)/lib/libbluetooth.la'])
-
-	AC_SUBST([GDBUS_CFLAGS], ['-I$(top_srcdir)/gdbus'])
-	AC_SUBST([GDBUS_LIBS], ['$(top_builddir)/gdbus/libgdbus.la'])
-
-	AC_SUBST([SBC_CFLAGS], ['-I$(top_srcdir)/sbc'])
-	AC_SUBST([SBC_LIBS], ['$(top_builddir)/sbc/libsbc.la'])
-
 	AM_CONDITIONAL(SNDFILE, test "${sndfile_enable}" = "yes" && test "${sndfile_found}" = "yes")
-	AM_CONDITIONAL(NETLINK, test "${netlink_enable}" = "yes" && test "${netlink_found}" = "yes")
 	AM_CONDITIONAL(USB, test "${usb_enable}" = "yes" && test "${usb_found}" = "yes")
-	AM_CONDITIONAL(SBC, test "${alsa_enable}" = "yes" || test "${gstreamer_enable}" = "yes")
+	AM_CONDITIONAL(SBC, test "${alsa_enable}" = "yes" || test "${gstreamer_enable}" = "yes" ||
+									test "${test_enable}" = "yes")
 	AM_CONDITIONAL(ALSA, test "${alsa_enable}" = "yes" && test "${alsa_found}" = "yes")
 	AM_CONDITIONAL(GSTREAMER, test "${gstreamer_enable}" = "yes" && test "${gstreamer_found}" = "yes")
 	AM_CONDITIONAL(AUDIOPLUGIN, test "${audio_enable}" = "yes")
@@ -364,6 +330,9 @@ AC_DEFUN([AC_ARG_BLUEZ], [
 	AM_CONDITIONAL(SERIALPLUGIN, test "${serial_enable}" = "yes")
 	AM_CONDITIONAL(NETWORKPLUGIN, test "${network_enable}" = "yes")
 	AM_CONDITIONAL(SERVICEPLUGIN, test "${service_enable}" = "yes")
+	AM_CONDITIONAL(ECHOPLUGIN, test "no" = "yes")
+	AM_CONDITIONAL(PNATPLUGIN, test "${pnat_enable}" = "yes")
+	AM_CONDITIONAL(TRACER, test "${tracer_enable}" = "yes")
 	AM_CONDITIONAL(HIDD, test "${hidd_enable}" = "yes")
 	AM_CONDITIONAL(PAND, test "${pand_enable}" = "yes")
 	AM_CONDITIONAL(DUND, test "${dund_enable}" = "yes")
@@ -374,7 +343,7 @@ AC_DEFUN([AC_ARG_BLUEZ], [
 	AM_CONDITIONAL(PCMCIA, test "${pcmcia_enable}" = "yes")
 	AM_CONDITIONAL(HID2HCI, test "${hid2hci_enable}" = "yes" && test "${usb_found}" = "yes")
 	AM_CONDITIONAL(DFUTOOL, test "${dfutool_enable}" = "yes" && test "${usb_found}" = "yes")
-	AM_CONDITIONAL(MANPAGES, test "${manpages_enable}" = "yes")
 	AM_CONDITIONAL(UDEVRULES, test "${udevrules_enable}" = "yes")
 	AM_CONDITIONAL(CONFIGFILES, test "${configfiles_enable}" = "yes")
+	AM_CONDITIONAL(MAEMO6PLUGIN, test "${maemo6_enable}" = "yes")
 ])

@@ -4,7 +4,7 @@
  *
  *  Copyright (C) 2000-2001  Qualcomm Incorporated
  *  Copyright (C) 2002-2003  Maxim Krasnyansky <maxk@qualcomm.com>
- *  Copyright (C) 2002-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2002-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -60,6 +60,7 @@ struct main_opts {
 	gboolean	remember_powered;
 	gboolean	reverse_sdp;
 	gboolean	name_resolv;
+	gboolean	debug_keys;
 
 	uint8_t		scan;
 	uint8_t		mode;

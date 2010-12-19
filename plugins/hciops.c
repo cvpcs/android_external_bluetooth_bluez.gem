@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -26,13 +26,8 @@
 
 #include <stdio.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <string.h>
-#include <signal.h>
-#include <sys/stat.h>
-#include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/wait.h>
@@ -43,15 +38,12 @@
 
 #include <glib.h>
 
-#include <dbus/dbus.h>
-
 #include "hcid.h"
 #include "sdpd.h"
 #include "adapter.h"
 #include "plugin.h"
-#include "logging.h"
+#include "log.h"
 #include "manager.h"
-#include "storage.h"
 
 static int child_pipe[2] = { -1, -1 };
 
@@ -71,7 +63,7 @@ static gboolean child_exit(GIOChannel *io, GIOCondition cond, void *user_data)
 	if (waitpid(child_pid, &status, 0) != child_pid)
 		error("waitpid(%d) failed", child_pid);
 	else
-		debug("child %d exited", child_pid);
+		DBG("child %d exited", child_pid);
 
 	return TRUE;
 }
@@ -84,11 +76,11 @@ static void at_child_exit(void)
 		error("unable to write to child pipe");
 }
 
-static void configure_device(int index)
+static void device_devup_setup(int index)
 {
 	struct hci_dev_info di;
 	uint16_t policy;
-	int dd;
+	int dd, err;
 
 	if (hci_devinfo(index, &di) < 0)
 		return;
@@ -98,42 +90,10 @@ static void configure_device(int index)
 
 	dd = hci_open_dev(index);
 	if (dd < 0) {
+		err = errno;
 		error("Can't open device hci%d: %s (%d)",
-						index, strerror(errno), errno);
+						index, strerror(err), err);
 		return;
-	}
-
-	/* Set device name */
-	if ((main_opts.flags & (1 << HCID_SET_NAME)) && main_opts.name) {
-		change_local_name_cp cp;
-
-		memset(cp.name, 0, sizeof(cp.name));
-		expand_name((char *) cp.name, sizeof(cp.name),
-						main_opts.name, index);
-
-		hci_send_cmd(dd, OGF_HOST_CTL, OCF_CHANGE_LOCAL_NAME,
-					CHANGE_LOCAL_NAME_CP_SIZE, &cp);
-	}
-
-	/* Set device class */
-	if ((main_opts.flags & (1 << HCID_SET_CLASS))) {
-		write_class_of_dev_cp cp;
-		uint32_t class;
-		uint8_t cls[3];
-
-		if (read_local_class(&di.bdaddr, cls) < 0) {
-			class = htobl(main_opts.class);
-			cls[2] = get_service_classes(&di.bdaddr);
-			memcpy(cp.dev_class, &class, 3);
-		} else {
-			if (!(main_opts.scan & SCAN_INQUIRY))
-				cls[1] &= 0xdf; /* Clear discoverable bit */
-			cls[2] = get_service_classes(&di.bdaddr);
-			memcpy(cp.dev_class, cls, 3);
-		}
-
-		hci_send_cmd(dd, OGF_HOST_CTL, OCF_WRITE_CLASS_OF_DEV,
-					WRITE_CLASS_OF_DEV_CP_SIZE, &cp);
 	}
 
 	/* Set page timeout */
@@ -151,6 +111,12 @@ static void configure_device(int index)
 				OCF_WRITE_DEFAULT_LINK_POLICY, 2, &policy);
 
 	hci_close_dev(dd);
+
+	start_security_manager(index);
+
+	/* Return value 1 means ioctl(DEVDOWN) was performed */
+	if (manager_start_adapter(index) == 1)
+		stop_security_manager(index);
 }
 
 static void init_device(int index)
@@ -158,7 +124,7 @@ static void init_device(int index)
 	struct hci_dev_req dr;
 	struct hci_dev_info di;
 	pid_t pid;
-	int dd;
+	int dd, err;
 
 	/* Do initialization in the separate process */
 	pid = fork();
@@ -167,17 +133,19 @@ static void init_device(int index)
 			atexit(at_child_exit);
 			break;
 		case -1:
+			err = errno;
 			error("Fork failed. Can't init device hci%d: %s (%d)",
-					index, strerror(errno), errno);
+					index, strerror(err), err);
 		default:
-			debug("child %d forked", pid);
+			DBG("child %d forked", pid);
 			return;
 	}
 
 	dd = hci_open_dev(index);
 	if (dd < 0) {
+		err = errno;
 		error("Can't open device hci%d: %s (%d)",
-					index, strerror(errno), errno);
+					index, strerror(err), err);
 		exit(1);
 	}
 
@@ -187,8 +155,9 @@ static void init_device(int index)
 	/* Set link mode */
 	dr.dev_opt = main_opts.link_mode;
 	if (ioctl(dd, HCISETLINKMODE, (unsigned long) &dr) < 0) {
+		err = errno;
 		error("Can't set link mode on hci%d: %s (%d)",
-					index, strerror(errno), errno);
+					index, strerror(err), err);
 	}
 
 	/* Set link policy */
@@ -239,17 +208,6 @@ static void device_devreg_setup(int index)
 		manager_register_adapter(index, devup);
 }
 
-static void device_devup_setup(int index)
-{
-	configure_device(index);
-
-	start_security_manager(index);
-
-	/* Return value 1 means ioctl(DEVDOWN) was performed */
-	if (manager_start_adapter(index) == 1)
-		stop_security_manager(index);
-}
-
 static void device_event(int event, int index)
 {
 	switch (event) {
@@ -284,29 +242,27 @@ static int init_known_adapters(int ctl)
 
 	dl = g_try_malloc0(HCI_MAX_DEV * sizeof(struct hci_dev_req) + sizeof(uint16_t));
 	if (!dl) {
-		err = -errno;
+		err = errno;
 		error("Can't allocate devlist buffer: %s (%d)",
-							strerror(errno), errno);
-		return err;
+							strerror(err), err);
+		return -err;
 	}
 
 	dl->dev_num = HCI_MAX_DEV;
 	dr = dl->dev_req;
 
 	if (ioctl(ctl, HCIGETDEVLIST, (void *) dl) < 0) {
-		err = -errno;
+		err = errno;
 		error("Can't get device list: %s (%d)",
-							strerror(errno), errno);
-		return err;
+							strerror(err), err);
+		g_free(dl);
+		return -err;
 	}
 
 	for (i = 0; i < dl->dev_num; i++, dr++) {
-		gboolean devup;
-
 		device_event(HCI_DEV_REG, dr->dev_id);
 
-		devup = hci_test_bit(HCI_UP, &dr->dev_opt);
-		if (devup)
+		if (hci_test_bit(HCI_UP, &dr->dev_opt))
 			device_event(HCI_DEV_UP, dr->dev_id);
 	}
 
@@ -370,9 +326,9 @@ static int hciops_setup(void)
 		return -EALREADY;
 
 	if (pipe(child_pipe) < 0) {
-		err = -errno;
-		error("pipe(): %s (%d)", strerror(errno), errno);
-		return err;
+		err = errno;
+		error("pipe(): %s (%d)", strerror(err), err);
+		return -err;
 	}
 
 	child_io = g_io_channel_unix_new(child_pipe[0]);
@@ -385,10 +341,10 @@ static int hciops_setup(void)
 	/* Create and bind HCI socket */
 	sock = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
 	if (sock < 0) {
-		err = -errno;
-		error("Can't open HCI socket: %s (%d)", strerror(errno),
-								errno);
-		return err;
+		err = errno;
+		error("Can't open HCI socket: %s (%d)", strerror(err),
+								err);
+		return -err;
 	}
 
 	/* Set filter */
@@ -397,9 +353,9 @@ static int hciops_setup(void)
 	hci_filter_set_event(EVT_STACK_INTERNAL, &flt);
 	if (setsockopt(sock, SOL_HCI, HCI_FILTER, &flt,
 							sizeof(flt)) < 0) {
-		err = -errno;
-		error("Can't set filter: %s (%d)", strerror(errno), errno);
-		return err;
+		err = errno;
+		error("Can't set filter: %s (%d)", strerror(err), err);
+		return -err;
 	}
 
 	memset(&addr, 0, sizeof(addr));
@@ -407,10 +363,10 @@ static int hciops_setup(void)
 	addr.hci_dev = HCI_DEV_NONE;
 	if (bind(sock, (struct sockaddr *) &addr,
 							sizeof(addr)) < 0) {
-		err = -errno;
+		err = errno;
 		error("Can't bind HCI socket: %s (%d)",
-							strerror(errno), errno);
-		return err;
+							strerror(err), err);
+		return -err;
 	}
 
 	ctl_io = g_io_channel_unix_new(sock);
@@ -460,14 +416,14 @@ static int hciops_start(int index)
 		goto done; /* on success */
 
 	if (errno != EALREADY) {
-		err = -errno;
+		err = errno;
 		error("Can't init device hci%d: %s (%d)",
-				index, strerror(errno), errno);
+				index, strerror(err), err);
 	}
 
 done:
 	hci_close_dev(dd);
-	return err;
+	return -err;
 }
 
 static int hciops_stop(int index)
@@ -483,19 +439,19 @@ static int hciops_stop(int index)
 		goto done; /* on success */
 
 	if (errno != EALREADY) {
-		err = -errno;
+		err = errno;
 		error("Can't stop device hci%d: %s (%d)",
-				index, strerror(errno), errno);
+				index, strerror(err), err);
 	}
 
 done:
 	hci_close_dev(dd);
-	return err;
+	return -err;
 }
 
 static int hciops_powered(int index, gboolean powered)
 {
-	int dd;
+	int dd, err;
 	uint8_t mode = SCAN_DISABLED;
 
 	if (powered)
@@ -505,8 +461,13 @@ static int hciops_powered(int index, gboolean powered)
 	if (dd < 0)
 		return -EIO;
 
-	hci_send_cmd(dd, OGF_HOST_CTL, OCF_WRITE_SCAN_ENABLE,
+	err = hci_send_cmd(dd, OGF_HOST_CTL, OCF_WRITE_SCAN_ENABLE,
 					1, &mode);
+	if (err < 0) {
+		err = -errno;
+		hci_close_dev(dd);
+		return err;
+	}
 
 	hci_close_dev(dd);
 
@@ -515,45 +476,72 @@ static int hciops_powered(int index, gboolean powered)
 
 static int hciops_connectable(int index)
 {
-	int dd;
+	int dd, err;
 	uint8_t mode = SCAN_PAGE;
 
 	dd = hci_open_dev(index);
 	if (dd < 0)
 		return -EIO;
 
-	hci_send_cmd(dd, OGF_HOST_CTL, OCF_WRITE_SCAN_ENABLE,
+	err = hci_send_cmd(dd, OGF_HOST_CTL, OCF_WRITE_SCAN_ENABLE,
 					1, &mode);
+	if (err < 0)
+		err = -errno;
 
 	hci_close_dev(dd);
 
-	return 0;
+	return err;
 }
 
 static int hciops_discoverable(int index)
 {
-	int dd;
+	int dd, err;
 	uint8_t mode = (SCAN_PAGE | SCAN_INQUIRY);
 
 	dd = hci_open_dev(index);
 	if (dd < 0)
 		return -EIO;
 
-	hci_send_cmd(dd, OGF_HOST_CTL, OCF_WRITE_SCAN_ENABLE,
+	err = hci_send_cmd(dd, OGF_HOST_CTL, OCF_WRITE_SCAN_ENABLE,
 					1, &mode);
+	if (err < 0)
+		err = -errno;
 
 	hci_close_dev(dd);
 
-	return 0;
+	return err;
 }
 
-static int hciops_set_limited_discoverable(int index, const uint8_t *cls,
+static int hciops_set_class(int index, uint32_t class)
+{
+	int dd, err;
+	write_class_of_dev_cp cp;
+
+	dd = hci_open_dev(index);
+	if (dd < 0)
+		return -EIO;
+
+	memcpy(cp.dev_class, &class, 3);
+
+	err = hci_send_cmd(dd, OGF_HOST_CTL, OCF_WRITE_CLASS_OF_DEV,
+					WRITE_CLASS_OF_DEV_CP_SIZE, &cp);
+
+	if (err < 0)
+		err = -errno;
+
+	hci_close_dev(dd);
+
+	return err;
+}
+
+static int hciops_set_limited_discoverable(int index, uint32_t class,
 							gboolean limited)
 {
-	int dd, err = 0;
-	uint32_t dev_class;
+	int dd, err;
 	int num = (limited ? 2 : 1);
 	uint8_t lap[] = { 0x33, 0x8b, 0x9e, 0x00, 0x8b, 0x9e };
+	write_current_iac_lap_cp cp;
+
 	/*
 	 * 1: giac
 	 * 2: giac + liac
@@ -562,40 +550,27 @@ static int hciops_set_limited_discoverable(int index, const uint8_t *cls,
 	if (dd < 0)
 		return -EIO;
 
-	if (hci_write_current_iac_lap(dd, num, lap, HCI_REQ_TIMEOUT) < 0) {
+	memset(&cp, 0, sizeof(cp));
+	cp.num_current_iac = num;
+	memcpy(&cp.lap, lap, num * 3);
+
+	err = hci_send_cmd(dd, OGF_HOST_CTL, OCF_WRITE_CURRENT_IAC_LAP,
+			(num * 3 + 1), &cp);
+	if (err < 0) {
 		err = -errno;
-		error("Can't write current IAC LAP: %s(%d)",
-						strerror(errno), errno);
-		goto done;
+		hci_close_dev(dd);
+		return err;
 	}
 
-	if (limited) {
-		if (cls[1] & 0x20)
-			goto done; /* Already limited */
-
-		dev_class = (cls[2] << 16) | ((cls[1] | 0x20) << 8) | cls[0];
-	} else {
-		if (!(cls[1] & 0x20))
-			goto done; /* Already clear */
-
-		dev_class = (cls[2] << 16) | ((cls[1] & 0xdf) << 8) | cls[0];
-	}
-
-	if (hci_write_class_of_dev(dd, dev_class, HCI_REQ_TIMEOUT) < 0) {
-		err = -errno;
-		error("Can't write class of device: %s (%d)",
-						strerror(errno), errno);
-		goto done;
-	}
-done:
 	hci_close_dev(dd);
-	return err;
+
+	return hciops_set_class(index, class);
 }
 
 static int hciops_start_discovery(int index, gboolean periodic)
 {
 	uint8_t lap[3] = { 0x33, 0x8b, 0x9e };
-	int dd, err = 0;
+	int dd, err;
 
 	dd = hci_open_dev(index);
 	if (dd < 0)
@@ -636,7 +611,7 @@ static int hciops_start_discovery(int index, gboolean periodic)
 static int hciops_stop_discovery(int index)
 {
 	struct hci_dev_info di;
-	int dd, err = 0;
+	int dd, err;
 
 	if (hci_devinfo(index, &di) < 0)
 		return -errno;
@@ -662,7 +637,7 @@ static int hciops_stop_discovery(int index)
 static int hciops_resolve_name(int index, bdaddr_t *bdaddr)
 {
 	remote_name_req_cp cp;
-	int dd, err = 0;
+	int dd, err;
 
 	dd = hci_open_dev(index);
 	if (dd < 0)
@@ -685,7 +660,7 @@ static int hciops_resolve_name(int index, bdaddr_t *bdaddr)
 static int hciops_set_name(int index, const char *name)
 {
 	change_local_name_cp cp;
-	int dd, err = 0;
+	int dd, err;
 
 	dd = hci_open_dev(index);
 	if (dd < 0)
@@ -706,7 +681,7 @@ static int hciops_set_name(int index, const char *name)
 
 static int hciops_read_name(int index)
 {
-	int dd, err = 0;
+	int dd, err;
 
 	dd = hci_open_dev(index);
 	if (dd < 0)
@@ -724,7 +699,7 @@ static int hciops_read_name(int index)
 static int hciops_cancel_resolve_name(int index, bdaddr_t *bdaddr)
 {
 	remote_name_req_cancel_cp cp;
-	int dd, err = 0;
+	int dd, err;
 
 	dd = hci_open_dev(index);
 	if (dd < 0)
@@ -758,6 +733,7 @@ static struct btd_adapter_ops hci_ops = {
 	.cancel_resolve_name = hciops_cancel_resolve_name,
 	.set_name = hciops_set_name,
 	.read_name = hciops_read_name,
+	.set_class = hciops_set_class,
 };
 
 static int hciops_init(void)

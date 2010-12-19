@@ -2,8 +2,8 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2006-2007  Nokia Corporation
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2006-2010  Nokia Corporation
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -43,7 +43,7 @@
 #include "plugin.h"
 #include "adapter.h"
 #include "error.h"
-#include "logging.h"
+#include "log.h"
 
 #define SERVICE_INTERFACE "org.bluez.Service"
 
@@ -107,7 +107,7 @@ static void element_start(GMarkupParseContext *context,
 				break;
 			}
 		}
-		debug("New attribute 0x%04x", ctx_data->attr_id);
+		DBG("New attribute 0x%04x", ctx_data->attr_id);
 		return;
 	}
 
@@ -174,13 +174,13 @@ static void element_end(GMarkupParseContext *context,
 			int ret = sdp_attr_add(ctx_data->record, ctx_data->attr_id,
 							ctx_data->stack_head->data);
 			if (ret == -1)
-				debug("Trouble adding attribute\n");
+				DBG("Trouble adding attribute\n");
 
 			ctx_data->stack_head->data = NULL;
 			sdp_xml_data_free(ctx_data->stack_head);
 			ctx_data->stack_head = NULL;
 		} else {
-			debug("No data for attribute 0x%04x\n", ctx_data->attr_id);
+			DBG("No data for attribute 0x%04x\n", ctx_data->attr_id);
 		}
 		return;
 	}
@@ -321,7 +321,7 @@ static void exit_callback(DBusConnection *conn, void *user_data)
 	struct service_adapter *serv_adapter = user_record->serv_adapter;
 	struct pending_auth *auth;
 
-	debug("remove record");
+	DBG("remove record");
 
 	serv_adapter->records = g_slist_remove(serv_adapter->records,
 						user_record);
@@ -409,7 +409,7 @@ static int add_xml_record(DBusConnection *conn, const char *sender,
 	serv_adapter->records = g_slist_append(serv_adapter->records,
 								user_record);
 
-	debug("listener_id %d", user_record->listener_id);
+	DBG("listener_id %d", user_record->listener_id);
 
 	*handle = user_record->handle;
 
@@ -493,13 +493,13 @@ static int remove_record(DBusConnection *conn, const char *sender,
 {
 	struct record_data *user_record;
 
-	debug("remove record 0x%x", handle);
+	DBG("remove record 0x%x", handle);
 
 	user_record = find_record(serv_adapter, handle, sender);
 	if (!user_record)
 		return -1;
 
-	debug("listner_id %d", user_record->listener_id);
+	DBG("listner_id %d", user_record->listener_id);
 
 	g_dbus_remove_watch(conn, user_record->listener_id);
 
@@ -640,6 +640,8 @@ static DBusMessage *request_authorization(DBusConnection *conn,
 	}
 
 	record = sdp_record_find(user_record->handle);
+	if (record == NULL)
+		return not_authorized(msg);
 
 	if (sdp_get_service_classes(record, &services) < 0) {
 		sdp_record_free(record);
@@ -787,7 +789,7 @@ static int register_interface(const char *path, struct btd_adapter *adapter)
 		return -EIO;
 	}
 
-	debug("Registered interface %s on path %s", SERVICE_INTERFACE, path);
+	DBG("Registered interface %s on path %s", SERVICE_INTERFACE, path);
 
 	if (serv_adapter->adapter == NULL)
 		serv_adapter_any = serv_adapter;

@@ -4,7 +4,7 @@
  *
  *  Copyright (C) 2000-2001  Qualcomm Incorporated
  *  Copyright (C) 2002-2003  Maxim Krasnyansky <maxk@qualcomm.com>
- *  Copyright (C) 2002-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2002-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -453,7 +453,7 @@ static void cmd_name(int ctl, int hdev, char *opt)
 	hci_close_dev(dd);
 }
 
-/* 
+/*
  * see http://www.bluetooth.org/assigned-numbers/baseband.htm --- all
  * strings are reproduced verbatim
  */
@@ -562,7 +562,7 @@ static char *get_minor_device_name(int major, int minor)
 		break;
 	case 5:	/* peripheral */ {
 		static char cls_str[48];
-		
+
 		cls_str[0] = '\0';
 
 		switch(minor & 48) {
@@ -944,7 +944,8 @@ static void cmd_version(int ctl, int hdev, char *opt)
 	lmpver = lmp_vertostr(ver.hci_ver);
 
 	print_dev_hdr(&di);
-	printf("\tHCI Ver: %s (0x%x) HCI Rev: 0x%x LMP Ver: %s (0x%x) LMP Subver: 0x%x\n"
+	printf("\tHCI Version: %s (0x%x)  Revision: 0x%x\n"
+		"\tLMP Version: %s (0x%x)  Subversion: 0x%x\n"
 		"\tManufacturer: %s (%d)\n",
 		hciver ? hciver : "n/a", ver.hci_ver, ver.hci_rev,
 		lmpver ? lmpver : "n/a", ver.lmp_ver, ver.lmp_subver,
@@ -980,7 +981,7 @@ static void cmd_inq_tpl(int ctl, int hdev, char *opt)
 	} else {
 		int8_t level;
 
-		if (hci_read_inquiry_transmit_power_level(dd, &level, 1000) < 0) {
+		if (hci_read_inq_response_tx_power_level(dd, &level, 1000) < 0) {
 			fprintf(stderr, "Can't read inquiry transmit power level on hci%d: %s (%d)\n",
 						hdev, strerror(errno), errno);
 			exit(1);
@@ -1127,7 +1128,11 @@ static void cmd_inq_data(int ctl, int hdev, char *opt)
 				}
 				break;
 			case 0x0a:
-				printf("\tTX power level: %d\n", *((uint8_t *) ptr));
+				printf("\tTX power level: %d\n", *((int8_t *) ptr));
+				break;
+			case 0x10:
+				printf("\tDevice ID with %d bytes data\n",
+								len - 1);
 				break;
 			default:
 				printf("\tUnknown type 0x%02x with %d bytes data\n",
@@ -1375,7 +1380,7 @@ static void cmd_page_to(int ctl, int hdev, char *opt)
 			exit(1);
 		}
 		print_dev_hdr(&di);
-		
+
 		timeout = btohs(rp.timeout);
 		printf("\tPage timeout: %u slots (%.2f ms)\n",
 				timeout, (float)timeout * 0.625);
@@ -1572,6 +1577,59 @@ static void cmd_revision(int ctl, int hdev, char *opt)
 	return;
 }
 
+static void cmd_block(int ctl, int hdev, char *opt)
+{
+	bdaddr_t bdaddr;
+	int dd;
+
+	if (!opt)
+		return;
+
+	dd = hci_open_dev(hdev);
+	if (dd < 0) {
+		fprintf(stderr, "Can't open device hci%d: %s (%d)\n",
+						hdev, strerror(errno), errno);
+		exit(1);
+	}
+
+	str2ba(opt, &bdaddr);
+
+	if (ioctl(dd, HCIBLOCKADDR, &bdaddr) < 0) {
+		perror("ioctl(HCIBLOCKADDR)");
+		exit(1);
+	}
+
+	hci_close_dev(dd);
+}
+
+static void cmd_unblock(int ctl, int hdev, char *opt)
+{
+	bdaddr_t bdaddr;
+	int dd;
+
+	if (!opt)
+		return;
+
+	dd = hci_open_dev(hdev);
+	if (dd < 0) {
+		fprintf(stderr, "Can't open device hci%d: %s (%d)\n",
+						hdev, strerror(errno), errno);
+		exit(1);
+	}
+
+	if (!strcasecmp(opt, "all"))
+		bacpy(&bdaddr, BDADDR_ANY);
+	else
+		str2ba(opt, &bdaddr);
+
+	if (ioctl(dd, HCIUNBLOCKADDR, &bdaddr) < 0) {
+		perror("ioctl(HCIUNBLOCKADDR)");
+		exit(1);
+	}
+
+	hci_close_dev(dd);
+}
+
 static void print_dev_hdr(struct hci_dev_info *di)
 {
 	static int hdr = -1;
@@ -1583,10 +1641,12 @@ static void print_dev_hdr(struct hci_dev_info *di)
 
 	ba2str(&di->bdaddr, addr);
 
-	printf("%s:\tType: %s\n", di->name, hci_dtypetostr(di->type) );
-	printf("\tBD Address: %s ACL MTU: %d:%d SCO MTU: %d:%d\n",
-		addr, di->acl_mtu, di->acl_pkts,
-		di->sco_mtu, di->sco_pkts);
+	printf("%s:\tType: %s  Bus: %s\n", di->name,
+					hci_typetostr(di->type >> 4),
+					hci_bustostr(di->type & 0x0f));
+	printf("\tBD Address: %s  ACL MTU: %d:%d  SCO MTU: %d:%d\n",
+					addr, di->acl_mtu, di->acl_pkts,
+						di->sco_mtu, di->sco_pkts);
 }
 
 static void print_dev_info(int ctl, struct hci_dev_info *di)
@@ -1666,6 +1726,8 @@ static struct {
 	{ "features",	cmd_features,	0,		"Display device features" },
 	{ "version",	cmd_version,	0,		"Display version information" },
 	{ "revision",	cmd_revision,	0,		"Display revision information" },
+	{ "block",	cmd_block,	"<bdaddr>",	"Add a device to the blacklist" },
+	{ "unblock",	cmd_unblock,	"<bdaddr>",	"Remove a device from the blacklist" },
 	{ NULL, NULL, 0 }
 };
 

@@ -2,8 +2,8 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2006-2007  Nokia Corporation
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2006-2010  Nokia Corporation
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -36,12 +36,13 @@
 #include <bluetooth/sdp.h>
 #include <bluetooth/sdp_lib.h>
 
-#include "logging.h"
+#include "log.h"
 #include "device.h"
 #include "manager.h"
 #include "avdtp.h"
 #include "sink.h"
 #include "source.h"
+#include "unix.h"
 #include "a2dp.h"
 #include "sdpd.h"
 
@@ -65,6 +66,7 @@ struct a2dp_sep {
 	struct avdtp *session;
 	struct avdtp_stream *stream;
 	guint suspend_timer;
+	gboolean delay_reporting;
 	gboolean locked;
 	gboolean suspending;
 	gboolean starting;
@@ -86,7 +88,6 @@ struct a2dp_setup {
 	struct avdtp_error *err;
 	GSList *client_caps;
 	gboolean reconfigure;
-	gboolean canceled;
 	gboolean start;
 	GSList *cb;
 	int ref;
@@ -100,6 +101,7 @@ struct a2dp_server {
 	GSList *sources;
 	uint32_t source_record_id;
 	uint32_t sink_record_id;
+	uint16_t version;
 };
 
 static GSList *servers = NULL;
@@ -110,14 +112,14 @@ static struct a2dp_setup *setup_ref(struct a2dp_setup *setup)
 {
 	setup->ref++;
 
-	debug("setup_ref(%p): ref=%d", setup, setup->ref);
+	DBG("%p: ref=%d", setup, setup->ref);
 
 	return setup;
 }
 
 static void setup_free(struct a2dp_setup *s)
 {
-	debug("setup_free(%p)", s);
+	DBG("%p", s);
 	setups = g_slist_remove(setups, s);
 	if (s->session)
 		avdtp_unref(s->session);
@@ -130,7 +132,7 @@ static void setup_unref(struct a2dp_setup *setup)
 {
 	setup->ref--;
 
-	debug("setup_unref(%p): ref=%d", setup, setup->ref);
+	DBG("%p: ref=%d", setup, setup->ref);
 
 	if (setup->ref <= 0)
 		setup_free(setup);
@@ -286,14 +288,11 @@ static gboolean sbc_setconf_ind(struct avdtp *session,
 {
 	struct a2dp_sep *a2dp_sep = user_data;
 	struct audio_device *dev;
-	struct avdtp_service_capability *cap;
-	struct avdtp_media_codec_capability *codec_cap;
-	struct sbc_codec_cap *sbc_cap;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Set_Configuration_Ind", sep);
+		DBG("Sink %p: Set_Configuration_Ind", sep);
 	else
-		debug("Source %p: Set_Configuration_Ind", sep);
+		DBG("Source %p: Set_Configuration_Ind", sep);
 
 	dev = a2dp_get_dev(session);
 	if (!dev) {
@@ -302,9 +301,19 @@ static gboolean sbc_setconf_ind(struct avdtp *session,
 		return FALSE;
 	}
 
-	/* Check bipool range */
-	for (codec_cap = NULL; caps; caps = g_slist_next(caps)) {
-		cap = caps->data;
+	/* Check valid settings */
+	for (; caps != NULL; caps = g_slist_next(caps)) {
+		struct avdtp_service_capability *cap = caps->data;
+		struct avdtp_media_codec_capability *codec_cap;
+		struct sbc_codec_cap *sbc_cap;
+
+		if (cap->category == AVDTP_DELAY_REPORTING &&
+					!a2dp_sep->delay_reporting) {
+			*err = AVDTP_UNSUPPORTED_CONFIGURATION;
+			*category = AVDTP_DELAY_REPORTING;
+			return FALSE;
+		}
+
 		if (cap->category != AVDTP_MEDIA_CODEC)
 			continue;
 
@@ -324,8 +333,6 @@ static gboolean sbc_setconf_ind(struct avdtp *session,
 			*category = AVDTP_MEDIA_CODEC;
 			return FALSE;
 		}
-
-		break;
 	}
 
 	avdtp_stream_add_cb(session, stream, stream_state_changed, a2dp_sep);
@@ -338,16 +345,17 @@ static gboolean sbc_setconf_ind(struct avdtp *session,
 }
 
 static gboolean sbc_getcap_ind(struct avdtp *session, struct avdtp_local_sep *sep,
-				GSList **caps, uint8_t *err, void *user_data)
+				gboolean get_all, GSList **caps, uint8_t *err,
+				void *user_data)
 {
 	struct a2dp_sep *a2dp_sep = user_data;
 	struct avdtp_service_capability *media_transport, *media_codec;
 	struct sbc_codec_cap sbc_cap;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Get_Capability_Ind", sep);
+		DBG("Sink %p: Get_Capability_Ind", sep);
 	else
-		debug("Source %p: Get_Capability_Ind", sep);
+		DBG("Source %p: Get_Capability_Ind", sep);
 
 	*caps = NULL;
 
@@ -393,6 +401,13 @@ static gboolean sbc_getcap_ind(struct avdtp *session, struct avdtp_local_sep *se
 
 	*caps = g_slist_append(*caps, media_codec);
 
+	if (get_all) {
+		struct avdtp_service_capability *delay_reporting;
+		delay_reporting = avdtp_service_cap_new(AVDTP_DELAY_REPORTING,
+								NULL, 0);
+		*caps = g_slist_append(*caps, delay_reporting);
+	}
+
 	return TRUE;
 }
 
@@ -406,15 +421,26 @@ static gboolean mpeg_setconf_ind(struct avdtp *session,
 	struct audio_device *dev;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Set_Configuration_Ind", sep);
+		DBG("Sink %p: Set_Configuration_Ind", sep);
 	else
-		debug("Source %p: Set_Configuration_Ind", sep);
+		DBG("Source %p: Set_Configuration_Ind", sep);
 
 	dev = a2dp_get_dev(session);
 	if (!dev) {
 		*err = AVDTP_UNSUPPORTED_CONFIGURATION;
 		*category = 0x00;
 		return FALSE;
+	}
+
+	for (; caps != NULL; caps = g_slist_next(caps)) {
+		struct avdtp_service_capability *cap = caps->data;
+
+		if (cap->category == AVDTP_DELAY_REPORTING &&
+					!a2dp_sep->delay_reporting) {
+			*err = AVDTP_UNSUPPORTED_CONFIGURATION;
+			*category = AVDTP_DELAY_REPORTING;
+			return FALSE;
+		}
 	}
 
 	avdtp_stream_add_cb(session, stream, stream_state_changed, a2dp_sep);
@@ -428,6 +454,7 @@ static gboolean mpeg_setconf_ind(struct avdtp *session,
 
 static gboolean mpeg_getcap_ind(struct avdtp *session,
 				struct avdtp_local_sep *sep,
+				gboolean get_all,
 				GSList **caps, uint8_t *err, void *user_data)
 {
 	struct a2dp_sep *a2dp_sep = user_data;
@@ -435,9 +462,9 @@ static gboolean mpeg_getcap_ind(struct avdtp *session,
 	struct mpeg_codec_cap mpeg_cap;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Get_Capability_Ind", sep);
+		DBG("Sink %p: Get_Capability_Ind", sep);
 	else
-		debug("Source %p: Get_Capability_Ind", sep);
+		DBG("Source %p: Get_Capability_Ind", sep);
 
 	*caps = NULL;
 
@@ -472,6 +499,13 @@ static gboolean mpeg_getcap_ind(struct avdtp *session,
 
 	*caps = g_slist_append(*caps, media_codec);
 
+	if (get_all) {
+		struct avdtp_service_capability *delay_reporting;
+		delay_reporting = avdtp_service_cap_new(AVDTP_DELAY_REPORTING,
+								NULL, 0);
+		*caps = g_slist_append(*caps, delay_reporting);
+	}
+
 	return TRUE;
 }
 
@@ -485,9 +519,9 @@ static void setconf_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	int ret;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Set_Configuration_Cfm", sep);
+		DBG("Sink %p: Set_Configuration_Cfm", sep);
 	else
-		debug("Source %p: Set_Configuration_Cfm", sep);
+		DBG("Source %p: Set_Configuration_Cfm", sep);
 
 	setup = find_setup_by_session(session);
 
@@ -527,9 +561,9 @@ static gboolean getconf_ind(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_sep *a2dp_sep = user_data;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Get_Configuration_Ind", sep);
+		DBG("Sink %p: Get_Configuration_Ind", sep);
 	else
-		debug("Source %p: Get_Configuration_Ind", sep);
+		DBG("Source %p: Get_Configuration_Ind", sep);
 	return TRUE;
 }
 
@@ -540,9 +574,9 @@ static void getconf_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_sep *a2dp_sep = user_data;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Set_Configuration_Cfm", sep);
+		DBG("Sink %p: Set_Configuration_Cfm", sep);
 	else
-		debug("Source %p: Set_Configuration_Cfm", sep);
+		DBG("Source %p: Set_Configuration_Cfm", sep);
 }
 
 static gboolean open_ind(struct avdtp *session, struct avdtp_local_sep *sep,
@@ -552,9 +586,9 @@ static gboolean open_ind(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_sep *a2dp_sep = user_data;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Open_Ind", sep);
+		DBG("Sink %p: Open_Ind", sep);
 	else
-		debug("Source %p: Open_Ind", sep);
+		DBG("Source %p: Open_Ind", sep);
 	return TRUE;
 }
 
@@ -566,20 +600,13 @@ static void open_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_setup *setup;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Open_Cfm", sep);
+		DBG("Sink %p: Open_Cfm", sep);
 	else
-		debug("Source %p: Open_Cfm", sep);
+		DBG("Source %p: Open_Cfm", sep);
 
 	setup = find_setup_by_session(session);
 	if (!setup)
 		return;
-
-	if (setup->canceled) {
-		if (!err)
-			avdtp_close(session, stream);
-		setup_unref(setup);
-		return;
-	}
 
 	if (setup->reconfigure)
 		setup->reconfigure = FALSE;
@@ -613,17 +640,13 @@ static gboolean start_ind(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_setup *setup;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Start_Ind", sep);
+		DBG("Sink %p: Start_Ind", sep);
 	else
-		debug("Source %p: Start_Ind", sep);
+		DBG("Source %p: Start_Ind", sep);
 
 	setup = find_setup_by_session(session);
-	if (setup) {
-		if (setup->canceled)
-			setup_unref(setup);
-		else
-			finalize_resume(setup);
-	}
+	if (setup)
+		finalize_resume(setup);
 
 	if (!a2dp_sep->locked) {
 		a2dp_sep->session = avdtp_ref(session);
@@ -643,20 +666,13 @@ static void start_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_setup *setup;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Start_Cfm", sep);
+		DBG("Sink %p: Start_Cfm", sep);
 	else
-		debug("Source %p: Start_Cfm", sep);
+		DBG("Source %p: Start_Cfm", sep);
 
 	setup = find_setup_by_session(session);
 	if (!setup)
 		return;
-
-	if (setup->canceled) {
-		if (!err)
-			avdtp_close(session, stream);
-		setup_unref(setup);
-		return;
-	}
 
 	if (err) {
 		setup->stream = NULL;
@@ -673,9 +689,9 @@ static gboolean suspend_ind(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_sep *a2dp_sep = user_data;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Suspend_Ind", sep);
+		DBG("Sink %p: Suspend_Ind", sep);
 	else
-		debug("Source %p: Suspend_Ind", sep);
+		DBG("Source %p: Suspend_Ind", sep);
 
 	if (a2dp_sep->suspend_timer) {
 		g_source_remove(a2dp_sep->suspend_timer);
@@ -696,9 +712,9 @@ static void suspend_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	gboolean start;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Suspend_Cfm", sep);
+		DBG("Sink %p: Suspend_Cfm", sep);
 	else
-		debug("Source %p: Suspend_Cfm", sep);
+		DBG("Source %p: Suspend_Cfm", sep);
 
 	a2dp_sep->suspending = FALSE;
 
@@ -739,9 +755,9 @@ static gboolean close_ind(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_sep *a2dp_sep = user_data;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Close_Ind", sep);
+		DBG("Sink %p: Close_Ind", sep);
 	else
-		debug("Source %p: Close_Ind", sep);
+		DBG("Source %p: Close_Ind", sep);
 
 	return TRUE;
 }
@@ -804,18 +820,13 @@ static void close_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_setup *setup;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Close_Cfm", sep);
+		DBG("Sink %p: Close_Cfm", sep);
 	else
-		debug("Source %p: Close_Cfm", sep);
+		DBG("Source %p: Close_Cfm", sep);
 
 	setup = find_setup_by_session(session);
 	if (!setup)
 		return;
-
-	if (setup->canceled) {
-		setup_unref(setup);
-		return;
-	}
 
 	if (err) {
 		setup->stream = NULL;
@@ -835,9 +846,9 @@ static gboolean abort_ind(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_sep *a2dp_sep = user_data;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Abort_Ind", sep);
+		DBG("Sink %p: Abort_Ind", sep);
 	else
-		debug("Source %p: Abort_Ind", sep);
+		DBG("Source %p: Abort_Ind", sep);
 
 	a2dp_sep->stream = NULL;
 
@@ -852,9 +863,9 @@ static void abort_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_setup *setup;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: Abort_Cfm", sep);
+		DBG("Sink %p: Abort_Cfm", sep);
 	else
-		debug("Source %p: Abort_Cfm", sep);
+		DBG("Source %p: Abort_Cfm", sep);
 
 	setup = find_setup_by_session(session);
 	if (!setup)
@@ -869,9 +880,28 @@ static gboolean reconf_ind(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_sep *a2dp_sep = user_data;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: ReConfigure_Ind", sep);
+		DBG("Sink %p: ReConfigure_Ind", sep);
 	else
-		debug("Source %p: ReConfigure_Ind", sep);
+		DBG("Source %p: ReConfigure_Ind", sep);
+
+	return TRUE;
+}
+
+static gboolean delayreport_ind(struct avdtp *session,
+				struct avdtp_local_sep *sep,
+				uint8_t rseid, uint16_t delay,
+				uint8_t *err, void *user_data)
+{
+	struct a2dp_sep *a2dp_sep = user_data;
+	struct audio_device *dev = a2dp_get_dev(session);
+
+	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
+		DBG("Sink %p: DelayReport_Ind", sep);
+	else
+		DBG("Source %p: DelayReport_Ind", sep);
+
+	unix_delay_report(dev, rseid, delay);
+
 	return TRUE;
 }
 
@@ -883,20 +913,13 @@ static void reconf_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_setup *setup;
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
-		debug("Sink %p: ReConfigure_Cfm", sep);
+		DBG("Sink %p: ReConfigure_Cfm", sep);
 	else
-		debug("Source %p: ReConfigure_Cfm", sep);
+		DBG("Source %p: ReConfigure_Cfm", sep);
 
 	setup = find_setup_by_session(session);
 	if (!setup)
 		return;
-
-	if (setup->canceled) {
-		if (!err)
-			avdtp_close(session, stream);
-		setup_unref(setup);
-		return;
-	}
 
 	if (err) {
 		setup->stream = NULL;
@@ -904,6 +927,18 @@ static void reconf_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	}
 
 	finalize_config(setup);
+}
+
+static void delay_report_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
+				struct avdtp_stream *stream,
+				struct avdtp_error *err, void *user_data)
+{
+	struct a2dp_sep *a2dp_sep = user_data;
+
+	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
+		DBG("Sink %p: DelayReport_Cfm", sep);
+	else
+		DBG("Source %p: DelayReport_Cfm", sep);
 }
 
 static struct avdtp_sep_cfm cfm = {
@@ -914,7 +949,8 @@ static struct avdtp_sep_cfm cfm = {
 	.suspend		= suspend_cfm,
 	.close			= close_cfm,
 	.abort			= abort_cfm,
-	.reconfigure		= reconf_cfm
+	.reconfigure		= reconf_cfm,
+	.delay_report		= delay_report_cfm,
 };
 
 static struct avdtp_sep_ind sbc_ind = {
@@ -926,7 +962,8 @@ static struct avdtp_sep_ind sbc_ind = {
 	.suspend		= suspend_ind,
 	.close			= close_ind,
 	.abort			= abort_ind,
-	.reconfigure		= reconf_ind
+	.reconfigure		= reconf_ind,
+	.delayreport		= delayreport_ind,
 };
 
 static struct avdtp_sep_ind mpeg_ind = {
@@ -938,10 +975,11 @@ static struct avdtp_sep_ind mpeg_ind = {
 	.suspend		= suspend_ind,
 	.close			= close_ind,
 	.abort			= abort_ind,
-	.reconfigure		= reconf_ind
+	.reconfigure		= reconf_ind,
+	.delayreport		= delayreport_ind,
 };
 
-static sdp_record_t *a2dp_record(uint8_t type)
+static sdp_record_t *a2dp_record(uint8_t type, uint16_t avdtp_ver)
 {
 	sdp_list_t *svclass_id, *pfseq, *apseq, *root;
 	uuid_t root_uuid, l2cap_uuid, avdtp_uuid, a2dp_uuid;
@@ -949,8 +987,12 @@ static sdp_record_t *a2dp_record(uint8_t type)
 	sdp_list_t *aproto, *proto[2];
 	sdp_record_t *record;
 	sdp_data_t *psm, *version, *features;
-	uint16_t lp = AVDTP_UUID, ver = 0x0100, feat = 0x000F;
+	uint16_t lp = AVDTP_UUID;
+	uint16_t a2dp_ver = 0x0102, feat = 0x000f;
 
+#ifdef ANDROID
+	feat = 0x0001;
+#endif
 	record = sdp_record_alloc();
 	if (!record)
 		return NULL;
@@ -967,7 +1009,7 @@ static sdp_record_t *a2dp_record(uint8_t type)
 	sdp_set_service_classes(record, svclass_id);
 
 	sdp_uuid16_create(&profile[0].uuid, ADVANCED_AUDIO_PROFILE_ID);
-	profile[0].version = 0x0100;
+	profile[0].version = a2dp_ver;
 	pfseq = sdp_list_append(0, &profile[0]);
 	sdp_set_profile_descs(record, pfseq);
 
@@ -979,7 +1021,7 @@ static sdp_record_t *a2dp_record(uint8_t type)
 
 	sdp_uuid16_create(&avdtp_uuid, AVDTP_UUID);
 	proto[1] = sdp_list_append(0, &avdtp_uuid);
-	version = sdp_data_alloc(SDP_UINT16, &ver);
+	version = sdp_data_alloc(SDP_UINT16, &avdtp_ver);
 	proto[1] = sdp_list_append(proto[1], version);
 	apseq = sdp_list_append(apseq, proto[1]);
 
@@ -1008,7 +1050,7 @@ static sdp_record_t *a2dp_record(uint8_t type)
 }
 
 static struct a2dp_sep *a2dp_add_sep(struct a2dp_server *server, uint8_t type,
-					uint8_t codec)
+					uint8_t codec, gboolean delay_reporting)
 {
 	struct a2dp_sep *sep;
 	GSList **l;
@@ -1020,8 +1062,8 @@ static struct a2dp_sep *a2dp_add_sep(struct a2dp_server *server, uint8_t type,
 
 	ind = (codec == A2DP_CODEC_MPEG12) ? &mpeg_ind : &sbc_ind;
 	sep->sep = avdtp_register_sep(&server->src, type,
-					AVDTP_MEDIA_TYPE_AUDIO, codec, ind,
-					&cfm, sep);
+					AVDTP_MEDIA_TYPE_AUDIO, codec,
+					delay_reporting, ind, &cfm, sep);
 	if (sep->sep == NULL) {
 		g_free(sep);
 		return NULL;
@@ -1029,6 +1071,7 @@ static struct a2dp_sep *a2dp_add_sep(struct a2dp_server *server, uint8_t type,
 
 	sep->codec = codec;
 	sep->type = type;
+	sep->delay_reporting = delay_reporting;
 
 	if (type == AVDTP_SEP_TYPE_SOURCE) {
 		l = &server->sources;
@@ -1041,7 +1084,7 @@ static struct a2dp_sep *a2dp_add_sep(struct a2dp_server *server, uint8_t type,
 	if (*record_id != 0)
 		goto add;
 
-	record = a2dp_record(type);
+	record = a2dp_record(type, server->version);
 	if (!record) {
 		error("Unable to allocate new service record");
 		avdtp_unregister_sep(sep->sep);
@@ -1082,7 +1125,7 @@ int a2dp_register(DBusConnection *conn, const bdaddr_t *src, GKeyFile *config)
 {
 	int sbc_srcs = 1, sbc_sinks = 1;
 	int mpeg12_srcs = 0, mpeg12_sinks = 0;
-	gboolean source = TRUE, sink = FALSE;
+	gboolean source = TRUE, sink = FALSE, delay_reporting;
 	char *str;
 	GError *err = NULL;
 	int i;
@@ -1094,7 +1137,7 @@ int a2dp_register(DBusConnection *conn, const bdaddr_t *src, GKeyFile *config)
 	str = g_key_file_get_string(config, "General", "Enable", &err);
 
 	if (err) {
-		debug("audio.conf: %s", err->message);
+		DBG("audio.conf: %s", err->message);
 		g_clear_error(&err);
 	} else {
 		if (strstr(str, "Sink"))
@@ -1107,7 +1150,7 @@ int a2dp_register(DBusConnection *conn, const bdaddr_t *src, GKeyFile *config)
 	str = g_key_file_get_string(config, "General", "Disable", &err);
 
 	if (err) {
-		debug("audio.conf: %s", err->message);
+		DBG("audio.conf: %s", err->message);
 		g_clear_error(&err);
 	} else {
 		if (strstr(str, "Sink"))
@@ -1119,7 +1162,7 @@ int a2dp_register(DBusConnection *conn, const bdaddr_t *src, GKeyFile *config)
 
 	str = g_key_file_get_string(config, "A2DP", "SBCSources", &err);
 	if (err) {
-		debug("audio.conf: %s", err->message);
+		DBG("audio.conf: %s", err->message);
 		g_clear_error(&err);
 	} else {
 		sbc_srcs = atoi(str);
@@ -1128,7 +1171,7 @@ int a2dp_register(DBusConnection *conn, const bdaddr_t *src, GKeyFile *config)
 
 	str = g_key_file_get_string(config, "A2DP", "MPEG12Sources", &err);
 	if (err) {
-		debug("audio.conf: %s", err->message);
+		DBG("audio.conf: %s", err->message);
 		g_clear_error(&err);
 	} else {
 		mpeg12_srcs = atoi(str);
@@ -1137,7 +1180,7 @@ int a2dp_register(DBusConnection *conn, const bdaddr_t *src, GKeyFile *config)
 
 	str = g_key_file_get_string(config, "A2DP", "SBCSinks", &err);
 	if (err) {
-		debug("audio.conf: %s", err->message);
+		DBG("audio.conf: %s", err->message);
 		g_clear_error(&err);
 	} else {
 		sbc_sinks = atoi(str);
@@ -1146,7 +1189,7 @@ int a2dp_register(DBusConnection *conn, const bdaddr_t *src, GKeyFile *config)
 
 	str = g_key_file_get_string(config, "A2DP", "MPEG12Sinks", &err);
 	if (err) {
-		debug("audio.conf: %s", err->message);
+		DBG("audio.conf: %s", err->message);
 		g_clear_error(&err);
 	} else {
 		mpeg12_sinks = atoi(str);
@@ -1165,32 +1208,41 @@ proceed:
 		if (!server)
 			return -ENOMEM;
 
-		av_err = avdtp_init(src, config);
-		if (av_err < 0)
+		av_err = avdtp_init(src, config, &server->version);
+		if (av_err < 0) {
+			g_free(server);
 			return av_err;
+		}
 
 		bacpy(&server->src, src);
 		servers = g_slist_append(servers, server);
 	}
 
+	delay_reporting = g_key_file_get_boolean(config, "A2DP",
+						"DelayReporting", NULL);
+	if (delay_reporting)
+		server->version = 0x0103;
+	else
+		server->version = 0x0102;
+
 	if (source) {
 		for (i = 0; i < sbc_srcs; i++)
 			a2dp_add_sep(server, AVDTP_SEP_TYPE_SOURCE,
-					A2DP_CODEC_SBC);
+					A2DP_CODEC_SBC, delay_reporting);
 
 		for (i = 0; i < mpeg12_srcs; i++)
 			a2dp_add_sep(server, AVDTP_SEP_TYPE_SOURCE,
-					A2DP_CODEC_MPEG12);
+					A2DP_CODEC_MPEG12, delay_reporting);
 	}
 
 	if (sink) {
 		for (i = 0; i < sbc_sinks; i++)
 			a2dp_add_sep(server, AVDTP_SEP_TYPE_SINK,
-					A2DP_CODEC_SBC);
+					A2DP_CODEC_SBC, delay_reporting);
 
 		for (i = 0; i < mpeg12_sinks; i++)
 			a2dp_add_sep(server, AVDTP_SEP_TYPE_SINK,
-					A2DP_CODEC_MPEG12);
+					A2DP_CODEC_MPEG12, delay_reporting);
 	}
 
 	return 0;
@@ -1310,7 +1362,7 @@ unsigned int a2dp_config(struct avdtp *session, struct a2dp_sep *sep,
 	if (sep->codec != codec_cap->media_codec_type)
 		return 0;
 
-	debug("a2dp_config: selected SEP %p", sep->sep);
+	DBG("a2dp_config: selected SEP %p", sep->sep);
 
 	cb_data = g_new0(struct a2dp_setup_cb, 1);
 	cb_data->config_cb = cb;
@@ -1349,7 +1401,7 @@ unsigned int a2dp_config(struct avdtp *session, struct a2dp_sep *sep,
 
 		if (l != NULL) {
 			setup->reconfigure = TRUE;
-			if (avdtp_close(session, tmp->stream) < 0) {
+			if (avdtp_close(session, tmp->stream, FALSE) < 0) {
 				error("avdtp_close failed");
 				goto failed;
 			}
@@ -1375,11 +1427,11 @@ unsigned int a2dp_config(struct avdtp *session, struct a2dp_sep *sep,
 	case AVDTP_STATE_OPEN:
 	case AVDTP_STATE_STREAMING:
 		if (avdtp_stream_has_capabilities(setup->stream, caps)) {
-			debug("Configuration match: resuming");
+			DBG("Configuration match: resuming");
 			g_idle_add((GSourceFunc) finalize_config, setup);
 		} else if (!setup->reconfigure) {
 			setup->reconfigure = TRUE;
-			if (avdtp_close(session, sep->stream) < 0) {
+			if (avdtp_close(session, sep->stream, FALSE) < 0) {
 				error("avdtp_close failed");
 				goto failed;
 			}
@@ -1514,7 +1566,7 @@ gboolean a2dp_cancel(struct audio_device *dev, unsigned int id)
 	struct a2dp_setup *setup;
 	GSList *l;
 
-	debug("a2dp_cancel()");
+	DBG("a2dp_cancel()");
 
 	setup = find_setup_by_dev(dev);
 	if (!setup)
@@ -1535,10 +1587,10 @@ gboolean a2dp_cancel(struct audio_device *dev, unsigned int id)
 	setup->cb = g_slist_remove(setup->cb, cb_data);
 	g_free(cb_data);
 
-	if (!setup->cb) {
-		setup->canceled = TRUE;
-		setup->sep = NULL;
-	}
+	if (setup->cb)
+		return TRUE;
+
+	avdtp_abort(setup->session, setup->stream);
 
 	return TRUE;
 }
@@ -1548,7 +1600,7 @@ gboolean a2dp_sep_lock(struct a2dp_sep *sep, struct avdtp *session)
 	if (sep->locked)
 		return FALSE;
 
-	debug("SEP %p locked", sep->sep);
+	DBG("SEP %p locked", sep->sep);
 	sep->locked = TRUE;
 
 	return TRUE;
@@ -1562,7 +1614,7 @@ gboolean a2dp_sep_unlock(struct a2dp_sep *sep, struct avdtp *session)
 
 	sep->locked = FALSE;
 
-	debug("SEP %p unlocked", sep->sep);
+	DBG("SEP %p unlocked", sep->sep);
 
 	if (!sep->stream || state == AVDTP_STATE_IDLE)
 		return TRUE;

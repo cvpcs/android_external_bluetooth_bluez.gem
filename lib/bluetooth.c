@@ -4,7 +4,7 @@
  *
  *  Copyright (C) 2000-2001  Qualcomm Incorporated
  *  Copyright (C) 2002-2003  Maxim Krasnyansky <maxk@qualcomm.com>
- *  Copyright (C) 2002-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2002-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -35,8 +35,8 @@
 #include <string.h>
 #include <sys/socket.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/hci.h>
+#include "bluetooth.h"
+#include "hci.h"
 
 void baswap(bdaddr_t *dst, const bdaddr_t *src)
 {
@@ -55,7 +55,7 @@ char *batostr(const bdaddr_t *ba)
 		return NULL;
 
 	sprintf(str, "%2.2X:%2.2X:%2.2X:%2.2X:%2.2X:%2.2X",
-		ba->b[0], ba->b[1], ba->b[2], 
+		ba->b[0], ba->b[1], ba->b[2],
 		ba->b[3], ba->b[4], ba->b[5]);
 
 	return str;
@@ -429,7 +429,7 @@ char *bt_compidtostr(int compid)
 	case 70:
 		return "MediaTek, Inc.";
 	case 71:
-		return "Bluegiga";	/* (tentative) */
+		return "Bluegiga";
 	case 72:
 		return "Marvell Technology Group Ltd.";
 	case 73:
@@ -462,6 +462,24 @@ char *bt_compidtostr(int compid)
 		return "Sony Ericsson Mobile Communications";
 	case 87:
 		return "Harman International Industries, Inc.";
+	case 88:
+		return "Vizio, Inc.";
+	case 89:
+		return "Nordic Semiconductor ASA";
+	case 90:
+		return "EM Microelectronic-Marin SA";
+	case 91:
+		return "Ralink Technology Corporation";
+	case 92:
+		return "Belkin International, Inc.";
+	case 93:
+		return "Realtek Semiconductor Corporation";
+	case 94:
+		return "Stonestreet One, LLC";
+	case 95:
+		return "Wicentric, Inc.";
+	case 96:
+		return "RivieraWaves S.A.S";
 	case 65535:
 		return "internal use";
 	default:

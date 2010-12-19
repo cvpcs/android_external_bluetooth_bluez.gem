@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2003-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2003-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -341,7 +341,7 @@ static void cmd_verify(char *device, int argc, char **argv)
 	size = st.st_size;
 
 	if (!(buf = malloc(size))) {
-		perror("Unable to allocate file buffer"); 
+		perror("Unable to allocate file buffer");
 		exit(1);
 	}
 
@@ -442,7 +442,7 @@ static void cmd_upgrade(char *device, int argc, char **argv)
 	filesize = st.st_size;
 
 	if (!(buf = malloc(filesize))) {
-		perror("Unable to allocate file buffer"); 
+		perror("Unable to allocate file buffer");
 		exit(1);
 	}
 

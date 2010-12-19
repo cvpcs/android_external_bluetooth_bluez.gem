@@ -2,7 +2,7 @@
  *
  *  D-Bus helper library
  *
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -40,10 +40,11 @@ typedef gboolean (* GDBusSignalFunction) (DBusConnection *connection,
 DBusConnection *g_dbus_setup_bus(DBusBusType type, const char *name,
 							DBusError *error);
 
-gboolean g_dbus_request_name(DBusConnection *connection, const char *name,
+DBusConnection *g_dbus_setup_private(DBusBusType type, const char *name,
 							DBusError *error);
 
-gboolean g_dbus_check_service(DBusConnection *connection, const char *name);
+gboolean g_dbus_request_name(DBusConnection *connection, const char *name,
+							DBusError *error);
 
 gboolean g_dbus_set_disconnect_function(DBusConnection *connection,
 				GDBusWatchFunction function,
@@ -90,9 +91,9 @@ typedef struct {
 
 gboolean g_dbus_register_interface(DBusConnection *connection,
 					const char *path, const char *name,
-					GDBusMethodTable *methods,
-					GDBusSignalTable *signals,
-					GDBusPropertyTable *properties,
+					const GDBusMethodTable *methods,
+					const GDBusSignalTable *signals,
+					const GDBusPropertyTable *properties,
 					void *user_data,
 					GDBusDestroyFunction destroy);
 gboolean g_dbus_unregister_interface(DBusConnection *connection,
@@ -127,8 +128,10 @@ guint g_dbus_add_disconnect_watch(DBusConnection *connection, const char *name,
 				GDBusWatchFunction function,
 				void *user_data, GDBusDestroyFunction destroy);
 guint g_dbus_add_signal_watch(DBusConnection *connection,
-				const char *rule, GDBusSignalFunction function,
-				void *user_data, GDBusDestroyFunction destroy);
+				const char *sender, const char *path,
+				const char *interface, const char *member,
+				GDBusSignalFunction function, void *user_data,
+				GDBusDestroyFunction destroy);
 gboolean g_dbus_remove_watch(DBusConnection *connection, guint tag);
 void g_dbus_remove_all_watches(DBusConnection *connection);
 

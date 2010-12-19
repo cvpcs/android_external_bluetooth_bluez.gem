@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -35,7 +35,7 @@
 
 #include <glib.h>
 
-#include "logging.h"
+#include "log.h"
 #include "manager.h"
 #include "adapter.h"
 #include "hcid.h"
@@ -90,7 +90,7 @@ static gboolean rfkill_event(GIOChannel *chan,
 	if (len != sizeof(struct rfkill_event))
 		return TRUE;
 
-	debug("RFKILL event idx %u type %u op %u soft %u hard %u",
+	DBG("RFKILL event idx %u type %u op %u soft %u hard %u",
 					event->idx, event->type, event->op,
 						event->soft, event->hard);
 
@@ -131,7 +131,7 @@ static gboolean rfkill_event(GIOChannel *chan,
 	if (!adapter)
 		return TRUE;
 
-	debug("RFKILL unblock for hci%d", id);
+	DBG("RFKILL unblock for hci%d", id);
 
 	btd_adapter_restore_powered(adapter);
 

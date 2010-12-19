@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2003-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2003-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -30,12 +30,16 @@
 #define HCIUARTSETPROTO		_IOW('U', 200, int)
 #define HCIUARTGETPROTO		_IOR('U', 201, int)
 #define HCIUARTGETDEVICE	_IOR('U', 202, int)
+#define HCIUARTSETFLAGS		_IOW('U', 203, int)
+#define HCIUARTGETFLAGS		_IOR('U', 204, int)
 
 #define HCI_UART_H4	0
 #define HCI_UART_BCSP	1
 #define HCI_UART_3WIRE	2
 #define HCI_UART_H4DS	3
 #define HCI_UART_LL	4
+
+#define HCI_UART_RAW_DEVICE	0
 
 int read_hci_event(int fd, unsigned char* buf, int size);
 int set_speed(int fd, struct termios *ti, int speed);

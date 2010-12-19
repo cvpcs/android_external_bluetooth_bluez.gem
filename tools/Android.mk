@@ -10,14 +10,14 @@ LOCAL_SRC_FILES:= \
 	avinfo.c
 
 LOCAL_CFLAGS:= \
-	-DVERSION=\"4.47\"
+	-DVERSION=\"4.69\"
 
 LOCAL_C_INCLUDES:=\
-	$(LOCAL_PATH)/../include \
-	$(LOCAL_PATH)/../common \
+	$(LOCAL_PATH)/../lib \
+	$(LOCAL_PATH)/../src \
 
 LOCAL_SHARED_LIBRARIES := \
-	libbluetooth
+	libbluetoothd libbluetooth
 
 LOCAL_MODULE_PATH := $(TARGET_OUT_OPTIONAL_EXECUTABLES)
 LOCAL_MODULE_TAGS := eng
@@ -35,17 +35,14 @@ LOCAL_SRC_FILES:= \
 	sdptool.c
 
 LOCAL_CFLAGS:= \
-	-DVERSION=\"4.47\" -fpermissive
+	-DVERSION=\"4.69\" -fpermissive
 
 LOCAL_C_INCLUDES:=\
-	$(LOCAL_PATH)/../include \
-	$(LOCAL_PATH)/../common \
+	$(LOCAL_PATH)/../lib \
+	$(LOCAL_PATH)/../src \
 
 LOCAL_SHARED_LIBRARIES := \
-	libbluetooth
-
-LOCAL_STATIC_LIBRARIES := \
-	libbluez-common-static
+	libbluetoothd libbluetooth
 
 LOCAL_MODULE:=sdptool
 
@@ -64,17 +61,14 @@ LOCAL_SRC_FILES:= \
 
 LOCAL_CFLAGS:= \
 	-DSTORAGEDIR=\"/tmp\" \
-	-DVERSION=\"4.47\"
+	-DVERSION=\"4.69\"
 
 LOCAL_C_INCLUDES:=\
-	$(LOCAL_PATH)/../include \
-	$(LOCAL_PATH)/../common \
+	$(LOCAL_PATH)/../lib \
+	$(LOCAL_PATH)/../src \
 
 LOCAL_SHARED_LIBRARIES := \
-	libbluetooth
-
-LOCAL_STATIC_LIBRARIES := \
-	libbluez-common-static
+	libbluetoothd libbluetooth
 
 LOCAL_MODULE_PATH := $(TARGET_OUT_OPTIONAL_EXECUTABLES)
 LOCAL_MODULE_TAGS := eng
@@ -93,17 +87,14 @@ LOCAL_SRC_FILES:= \
 
 LOCAL_CFLAGS:= \
 	-DSTORAGEDIR=\"/tmp\" \
-	-DVERSION=\"4.47\"
+	-DVERSION=\"4.69\"
 
 LOCAL_C_INCLUDES:=\
-	$(LOCAL_PATH)/../include \
-	$(LOCAL_PATH)/../common \
+	$(LOCAL_PATH)/../lib \
+	$(LOCAL_PATH)/../src \
 
 LOCAL_SHARED_LIBRARIES := \
-	libbluetooth
-
-LOCAL_STATIC_LIBRARIES := \
-	libbluez-common-static
+	libbluetoothd libbluetooth
 
 LOCAL_MODULE_PATH := $(TARGET_OUT_OPTIONAL_EXECUTABLES)
 LOCAL_MODULE_TAGS := eng
@@ -121,11 +112,11 @@ LOCAL_SRC_FILES:= \
 	l2ping.c
 
 LOCAL_C_INCLUDES:=\
-	$(LOCAL_PATH)/../include \
-	$(LOCAL_PATH)/../common \
+	$(LOCAL_PATH)/../lib \
+	$(LOCAL_PATH)/../src \
 
 LOCAL_SHARED_LIBRARIES := \
-	libbluetooth
+	libbluetoothd libbluetooth
 
 LOCAL_MODULE_PATH := $(TARGET_OUT_OPTIONAL_EXECUTABLES)
 LOCAL_MODULE_TAGS := eng
@@ -146,19 +137,46 @@ LOCAL_SRC_FILES:= \
 	hciattach_tialt.c
 
 LOCAL_CFLAGS:= \
-	-DVERSION=\"4.47\" \
+	-DVERSION=\"4.69\" \
 	-D__BSD_VISIBLE=1
 
 LOCAL_C_INCLUDES:=\
-	$(LOCAL_PATH)/../include \
-	$(LOCAL_PATH)/../common \
+	$(LOCAL_PATH)/../lib \
+	$(LOCAL_PATH)/../src \
 
 LOCAL_SHARED_LIBRARIES := \
-	libbluetooth
-
-LOCAL_STATIC_LIBRARIES := \
-	libbluez-common-static
+	libbluetoothd libbluetooth
 
 LOCAL_MODULE:=hciattach
+
+include $(BUILD_EXECUTABLE)
+
+#
+# rfcomm
+#
+
+include $(CLEAR_VARS)
+
+LOCAL_SRC_FILES:= \
+        kword.c \
+        main.c \
+        parser.c \
+        lexer.c
+
+LOCAL_CFLAGS:= \
+        -DVERSION=\"4.69\" \
+	-DCONFIGDIR=\"/etc/bluetooth\" \
+        -DNEED_PPOLL
+
+LOCAL_C_INCLUDES:= \
+        $(LOCAL_PATH)/../src \
+        $(LOCAL_PATH)/../lib
+
+LOCAL_SHARED_LIBRARIES := \
+        libbluetooth
+
+LOCAL_MODULE_PATH := $(TARGET_OUT_OPTIONAL_EXECUTABLES)
+LOCAL_MODULE_TAGS := eng
+LOCAL_MODULE:=rfcomm
 
 include $(BUILD_EXECUTABLE)

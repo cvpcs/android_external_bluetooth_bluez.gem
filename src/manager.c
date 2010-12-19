@@ -2,8 +2,8 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2006-2007  Nokia Corporation
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2006-2010  Nokia Corporation
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -45,7 +45,7 @@
 
 #include "hcid.h"
 #include "dbus-common.h"
-#include "logging.h"
+#include "log.h"
 #include "adapter.h"
 #include "error.h"
 #include "manager.h"
@@ -61,32 +61,9 @@ const char *manager_get_base_path(void)
 	return base_path;
 }
 
-void manager_update_svc(const bdaddr_t *bdaddr, uint8_t svc)
+void manager_update_svc(struct btd_adapter* adapter, uint8_t svc)
 {
-	GSList *l;
-	bdaddr_t src;
-
-	for (l = adapters; l != NULL; l = l->next) {
-		struct btd_adapter *adapter = l->data;
-
-		adapter_get_address(adapter, &src);
-
-		if (bacmp(bdaddr, BDADDR_ANY) != 0 && bacmp(bdaddr, &src) != 0)
-			continue;
-
-		adapter_update(adapter, svc);
-	}
-}
-
-int manager_get_adapter_class(uint16_t dev_id, uint8_t *cls)
-{
-	struct btd_adapter *adapter;
-
-	adapter = manager_find_adapter_by_id(dev_id);
-	if (!adapter)
-		return -EINVAL;
-
-	return adapter_get_class(adapter, cls);
+	adapter_update(adapter, svc);
 }
 
 static inline DBusMessage *invalid_args(DBusMessage *msg)
@@ -139,8 +116,8 @@ static DBusMessage *find_adapter(DBusConnection *conn,
 							DBUS_TYPE_INVALID))
 		return NULL;
 
-	/* hci_devid() would make sense to use here, except it
-	   is restricted to devices which are up */
+	/* hci_devid() would make sense to use here, except it is
+	 * restricted to devices which are up */
 	if (!strcmp(pattern, "any") || !strcmp(pattern, "00:00:00:00:00:00")) {
 		path = adapter_any_get_path();
 		if (path != NULL)
@@ -240,7 +217,8 @@ static GDBusMethodTable manager_methods[] = {
 	{ "GetProperties",	"",	"a{sv}",get_properties	},
 	{ "DefaultAdapter",	"",	"o",	default_adapter	},
 	{ "FindAdapter",	"s",	"o",	find_adapter	},
-	{ "ListAdapters",	"",	"ao",	list_adapters	},
+	{ "ListAdapters",	"",	"ao",	list_adapters,
+						G_DBUS_METHOD_FLAG_DEPRECATED},
 	{ }
 };
 
@@ -259,8 +237,8 @@ dbus_bool_t manager_init(DBusConnection *conn, const char *path)
 	snprintf(base_path, sizeof(base_path), "/org/bluez/%d", getpid());
 
 	return g_dbus_register_interface(conn, "/", MANAGER_INTERFACE,
-			manager_methods, manager_signals,
-			NULL, NULL, NULL);
+					manager_methods, manager_signals,
+					NULL, NULL, NULL);
 }
 
 static void manager_update_adapters(void)
@@ -359,7 +337,7 @@ static gint adapter_address_cmp(gconstpointer a, gconstpointer b)
 	adapter_get_address(adapter, &bdaddr);
 	ba2str(&bdaddr, addr);
 
-	return strcmp(addr, address);
+	return strcasecmp(addr, address);
 }
 
 struct btd_adapter *manager_find_adapter(const bdaddr_t *sba)
@@ -399,7 +377,8 @@ struct btd_adapter *manager_find_adapter_by_id(int id)
 {
 	GSList *match;
 
-	match = g_slist_find_custom(adapters, GINT_TO_POINTER(id), adapter_id_cmp);
+	match = g_slist_find_custom(adapters, GINT_TO_POINTER(id),
+							adapter_id_cmp);
 	if (!match)
 		return NULL;
 
@@ -414,9 +393,9 @@ GSList *manager_get_adapters(void)
 void manager_add_adapter(const char *path)
 {
 	g_dbus_emit_signal(connection, "/",
-			MANAGER_INTERFACE, "AdapterAdded",
-			DBUS_TYPE_OBJECT_PATH, &path,
-			DBUS_TYPE_INVALID);
+				MANAGER_INTERFACE, "AdapterAdded",
+				DBUS_TYPE_OBJECT_PATH, &path,
+				DBUS_TYPE_INVALID);
 
 	manager_update_adapters();
 
@@ -462,7 +441,7 @@ int manager_unregister_adapter(int id)
 
 int manager_start_adapter(int id)
 {
-	struct btd_adapter* adapter;
+	struct btd_adapter *adapter;
 	int ret;
 
 	adapter = manager_find_adapter_by_id(id);

@@ -5,6 +5,7 @@
 *.so
 .deps
 .libs
+.dirstamp
 Makefile
 Makefile.in
 aclocal.m4
@@ -26,16 +27,22 @@ autom4te.cache
 
 ylwrap
 bluez.pc
-include/bluetooth
+lib/bluetooth
+src/builtin.h
 src/bluetoothd
+src/bluetooth.exp
+src/bluetooth.ver
 audio/telephony.c
 scripts/bluetooth.rules
+scripts/97-bluetooth.rules
+scripts/97-bluetooth-hid2hci.rules
 
 sbc/sbcdec
 sbc/sbcenc
 sbc/sbcinfo
 sbc/sbctester
 
+tracer/hcitrace
 tools/avctrl
 tools/avinfo
 tools/bccmd
@@ -48,10 +55,10 @@ tools/hcieventmask
 tools/hcisecfilter
 tools/hcitool
 tools/hid2hci
+tools/rfcomm
 tools/l2ping
 tools/ppporc
 tools/sdptool
-audio/ipctest
 cups/bluetooth
 test/agent
 test/bdaddr
@@ -62,14 +69,15 @@ test/avtest
 test/l2test
 test/rctest
 test/scotest
+test/gaptest
 test/sdptest
 test/lmptest
+test/ipctest
 test/btiotest
-rfcomm/rfcomm
+test/test-textfile
 compat/dund
 compat/hidd
 compat/pand
-common/test_textfile
 
 doc/*.bak
 doc/*.stamp
@@ -80,4 +88,3 @@ doc/version.xml
 doc/xml
 doc/html
 src/bluetoothd.8
-src/hcid.conf.5

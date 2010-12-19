@@ -2,8 +2,8 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2006-2007  Nokia Corporation
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2006-2010  Nokia Corporation
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -43,7 +43,7 @@
 #include <dbus/dbus.h>
 #include <gdbus.h>
 
-#include "logging.h"
+#include "log.h"
 #include "textfile.h"
 #include "../src/adapter.h"
 #include "../src/device.h"
@@ -157,7 +157,7 @@ static void device_set_state(struct audio_device *dev, audio_state_t new_state)
 		priv->authorized = FALSE;
 
 	if (dev->priv->state == new_state) {
-		debug("state change attempted from %s to %s",
+		DBG("state change attempted from %s to %s",
 							state_str, state_str);
 		return;
 	}
@@ -345,6 +345,11 @@ static void device_sink_cb(struct audio_device *dev,
 			device_remove_control_timer(dev);
 			avrcp_disconnect(dev);
 		}
+		if (priv->hs_state != HEADSET_STATE_DISCONNECTED &&
+								priv->dc_req) {
+			headset_shutdown(dev);
+			break;
+		}
 		if (priv->hs_state == HEADSET_STATE_DISCONNECTED)
 			device_set_state(dev, AUDIO_STATE_DISCONNECTED);
 		else if (old_state == SINK_STATE_CONNECTING) {
@@ -372,11 +377,14 @@ static void device_sink_cb(struct audio_device *dev,
 		if (dev->auto_connect) {
 			if (!dev->headset)
 				device_set_state(dev, AUDIO_STATE_CONNECTED);
-			if (priv->hs_state == HEADSET_STATE_DISCONNECTED)
+			else if (priv->hs_state == HEADSET_STATE_DISCONNECTED)
 				device_set_headset_timer(dev);
-			else if (priv->hs_state == HEADSET_STATE_CONNECTED)
+			else if (priv->hs_state == HEADSET_STATE_CONNECTED ||
+					priv->hs_state == HEADSET_STATE_PLAY_IN_PROGRESS ||
+					priv->hs_state == HEADSET_STATE_PLAYING)
 				device_set_state(dev, AUDIO_STATE_CONNECTED);
-		} else if (priv->hs_state != HEADSET_STATE_CONNECTED)
+		} else if (priv->hs_state == HEADSET_STATE_DISCONNECTED ||
+				priv->hs_state == HEADSET_STATE_CONNECTING)
 			device_set_state(dev, AUDIO_STATE_CONNECTED);
 		break;
 	case SINK_STATE_PLAYING:
@@ -427,12 +435,12 @@ static void device_headset_cb(struct audio_device *dev,
 		}
 		if (priv->sink_state == SINK_STATE_DISCONNECTED)
 			device_set_state(dev, AUDIO_STATE_DISCONNECTED);
-		else if (old_state == HEADSET_STATE_CONNECT_IN_PROGRESS &&
+		else if (old_state == HEADSET_STATE_CONNECTING &&
 				(priv->sink_state == SINK_STATE_CONNECTED ||
 				priv->sink_state == SINK_STATE_PLAYING))
 			device_set_state(dev, AUDIO_STATE_CONNECTED);
 		break;
-	case HEADSET_STATE_CONNECT_IN_PROGRESS:
+	case HEADSET_STATE_CONNECTING:
 		device_remove_headset_timer(dev);
 		if (priv->sink_state == SINK_STATE_DISCONNECTED)
 			device_set_state(dev, AUDIO_STATE_CONNECTING);
@@ -447,9 +455,11 @@ static void device_headset_cb(struct audio_device *dev,
 				device_set_state(dev, AUDIO_STATE_CONNECTED);
 			else if (priv->sink_state == SINK_STATE_DISCONNECTED)
 				device_set_avdtp_timer(dev);
-			else if (priv->sink_state == SINK_STATE_CONNECTED)
+			else if (priv->sink_state == SINK_STATE_CONNECTED ||
+					priv->sink_state == SINK_STATE_PLAYING)
 				device_set_state(dev, AUDIO_STATE_CONNECTED);
-		} else if (priv->sink_state != SINK_STATE_CONNECTED)
+		} else if (priv->sink_state == SINK_STATE_DISCONNECTED ||
+				priv->sink_state == SINK_STATE_CONNECTING)
 			device_set_state(dev, AUDIO_STATE_CONNECTED);
 		break;
 	case HEADSET_STATE_PLAY_IN_PROGRESS:
@@ -517,10 +527,15 @@ static DBusMessage *dev_disconnect(DBusConnection *conn, DBusMessage *msg,
 
 	priv->dc_req = dbus_message_ref(msg);
 
-	if (priv->hs_state != HEADSET_STATE_DISCONNECTED)
-		headset_shutdown(dev);
-	else if (dev->sink && priv->sink_state != SINK_STATE_DISCONNECTED)
+	if (dev->control) {
+		device_remove_control_timer(dev);
+		avrcp_disconnect(dev);
+	}
+
+	if (dev->sink && priv->sink_state != SINK_STATE_DISCONNECTED)
 		sink_shutdown(dev->sink);
+	else if (priv->hs_state != HEADSET_STATE_DISCONNECTED)
+		headset_shutdown(dev);
 	else {
 		dbus_message_unref(priv->dc_req);
 		priv->dc_req = NULL;
@@ -603,7 +618,7 @@ struct audio_device *audio_device_register(DBusConnection *conn,
 		return NULL;
 	}
 
-	debug("Registered interface %s on path %s", AUDIO_INTERFACE,
+	DBG("Registered interface %s on path %s", AUDIO_INTERFACE,
 								dev->path);
 
 	if (sink_callback_id == 0)
@@ -626,26 +641,24 @@ gboolean audio_device_is_active(struct audio_device *dev,
 {
 	if (!interface) {
 		if ((dev->sink || dev->source) &&
-			avdtp_is_connected(&dev->src, &dev->dst))
+				avdtp_is_connected(&dev->src, &dev->dst))
 			return TRUE;
-
 		if (dev->headset && headset_is_active(dev))
 			return TRUE;
-	}
-	else if (!strcmp(interface, AUDIO_SINK_INTERFACE) && dev->sink &&
-			avdtp_is_connected(&dev->src, &dev->dst))
+	} else if (!strcmp(interface, AUDIO_SINK_INTERFACE) && dev->sink &&
+				avdtp_is_connected(&dev->src, &dev->dst))
 		return TRUE;
 	else if (!strcmp(interface, AUDIO_SOURCE_INTERFACE) && dev->source &&
-			avdtp_is_connected(&dev->src, &dev->dst))
+				avdtp_is_connected(&dev->src, &dev->dst))
 		return TRUE;
 	else if (!strcmp(interface, AUDIO_HEADSET_INTERFACE) && dev->headset &&
-			headset_is_active(dev))
+				headset_is_active(dev))
 		return TRUE;
 	else if (!strcmp(interface, AUDIO_CONTROL_INTERFACE) && dev->control &&
-			control_is_active(dev))
+				control_is_active(dev))
 		return TRUE;
 	else if (!strcmp(interface, AUDIO_GATEWAY_INTERFACE) && dev->gateway &&
-			gateway_is_connected(dev))
+				gateway_is_connected(dev))
 		return TRUE;
 
 	return FALSE;
@@ -655,8 +668,16 @@ void audio_device_unregister(struct audio_device *device)
 {
 	unix_device_removed(device);
 
+	if (device->hs_preauth_id) {
+		g_source_remove(device->hs_preauth_id);
+		device->hs_preauth_id = 0;
+	}
+
 	if (device->headset)
 		headset_unregister(device);
+
+	if (device->gateway)
+		gateway_unregister(device);
 
 	if (device->sink)
 		sink_unregister(device);
@@ -773,7 +794,7 @@ int audio_device_cancel_authorization(struct audio_device *dev,
 	GSList *l, *next;
 
 	for (l = priv->auths; l != NULL; l = next) {
-		struct service_auth *auth = priv->auths->data;
+		struct service_auth *auth = l->data;
 
 		next = g_slist_next(l);
 
@@ -796,4 +817,11 @@ int audio_device_cancel_authorization(struct audio_device *dev,
 	}
 
 	return 0;
+}
+
+void audio_device_set_authorized(struct audio_device *dev, gboolean auth)
+{
+	struct dev_priv *priv = dev->priv;
+
+	priv->authorized = auth;
 }

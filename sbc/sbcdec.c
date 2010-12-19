@@ -2,7 +2,8 @@
  *
  *  Bluetooth low-complexity, subband codec (SBC) decoder
  *
- *  Copyright (C) 2004-2009  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2008-2010  Nokia Corporation
+ *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -219,7 +220,7 @@ free:
 static void usage(void)
 {
 	printf("SBC decoder utility ver %s\n", VERSION);
-	printf("Copyright (c) 2004-2009  Marcel Holtmann\n\n");
+	printf("Copyright (c) 2004-2010  Marcel Holtmann\n\n");
 
 	printf("Usage:\n"
 		"\tsbcdec [options] file(s)\n"
@@ -258,15 +259,13 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'd':
-			if (output)
-				free(output);
+			free(output);
 			output = strdup(optarg);
 			tofile = 0;
 			break;
 
 		case 'f' :
-			if (output)
-				free(output);
+			free(output);
 			output = strdup(optarg);
 			tofile = 1;
 			break;
@@ -288,8 +287,7 @@ int main(int argc, char *argv[])
 	for (i = 0; i < argc; i++)
 		decode(argv[i], output ? output : "/dev/dsp", tofile);
 
-	if (output)
-		free(output);
+	free(output);
 
 	return 0;
 }
