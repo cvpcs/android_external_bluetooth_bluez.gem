@@ -781,7 +781,6 @@ static void avctp_confirm_cb(GIOChannel *chan, gpointer data)
 	if (control->io) {
 		/* We already have a control connection, and the device is trying to open
 		 * a new one.  Refuse it and keep the existing one. */
-		debug("Refusing control connect %p from %s (io %p already exists)", chan, address, control->io);
 		g_io_channel_shutdown(chan, TRUE, NULL);
 		return;
 	}
